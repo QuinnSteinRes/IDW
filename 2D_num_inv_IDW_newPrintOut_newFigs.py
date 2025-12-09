@@ -29,7 +29,7 @@ IDW_EMA_BETA = 0.9            # EMA smoothing for gradient energies
 IDW_EPS = 1e-12               # small epsilon to avoid divide-by-zero
 IDW_CLAMP = (1e-3, 1e3)       # clamp raw weights before normalization (stability)
 ADAM_LR = 1e-3
-ADAM_EPOCHS = 2000            # More epochs for 2D inverse problem
+ADAM_EPOCHS = 200            # More epochs for 2D inverse problem
 PRINT_EVERY = 200
 FREEZE_BEFORE_LBFGS = True    # freeze the learned weights before L-BFGS
 WEIGHT_SUM_TARGET = 3.0       # three tasks now (BC/IC, Data, PDE) -> normalize to sum ~ 3
@@ -265,6 +265,10 @@ class Sequentialmodel(tf.Module):
 
         # Trainable diffusion coefficient
         self.diff_coeff = tf.Variable(DIFF_COEFF_INIT, dtype=tf.float64, trainable=True, name="diff_coeff")
+        
+        # L-BFGS iteration counter and timing
+        self.lbfgs_iter = 0
+        self.lbfgs_last_print_time = None
 
     @property
     def trainable_variables(self):
@@ -468,6 +472,8 @@ class Sequentialmodel(tf.Module):
         global diff_coeff_history_lbfgs, loss_bc_history_lbfgs, loss_data_history_lbfgs
         global loss_f_history_lbfgs, lam_bc_history_lbfgs, lam_data_history_lbfgs, lam_f_history_lbfgs
         
+        self.lbfgs_iter += 1
+        
         loss_value, loss_bc, loss_data, loss_f, lam_bc, lam_data, lam_f = self.loss(
             X_u_train, u_train, X_obs, u_obs, X_f_train)
         u_pred = self.evaluate(X_u_test)
@@ -483,9 +489,21 @@ class Sequentialmodel(tf.Module):
         lam_data_history_lbfgs.append(lam_data.numpy())
         lam_f_history_lbfgs.append(lam_f.numpy())
         
-        tf.print("L:", loss_value, "Lbc:", loss_bc, "Ldata:", loss_data, "Lf:", loss_f,
-                 "lam_bc:", lam_bc, "lam_data:", lam_data, "lam_f:", lam_f,
-                 "relL2:", error_vec, "D:", self.diff_coeff, "D_err:", diff_error)
+        # Print every PRINT_EVERY iterations
+        if self.lbfgs_iter % PRINT_EVERY == 0 or self.lbfgs_iter == 1:
+            current_time = time.time()
+            if self.lbfgs_last_print_time is not None:
+                elapsed = current_time - self.lbfgs_last_print_time
+                time_str = f"  dt={elapsed:.1f}s"
+            else:
+                time_str = ""
+            self.lbfgs_last_print_time = current_time
+            
+            print(f"[L-BFGS {self.lbfgs_iter:5d}] L={loss_value.numpy():.3e}  Lbc={loss_bc.numpy():.3e}  "
+                  f"Ldata={loss_data.numpy():.3e}  Lf={loss_f.numpy():.3e}")
+            print(f"              lam_bc={lam_bc.numpy():.3e}  lam_data={lam_data.numpy():.3e}  "
+                  f"lam_f={lam_f.numpy():.3e}")
+            print(f"              relL2={error_vec:.3e}  D={self.diff_coeff.numpy():.4f}  D_err={diff_error:.4f}{time_str}")
 
 
 def solutionplot_2D(u_pred, usol, x, y, t, diff_coeff_learned, X_obs, X_u_train):
@@ -493,11 +511,10 @@ def solutionplot_2D(u_pred, usol, x, y, t, diff_coeff_learned, X_obs, X_u_train)
     # Reshape prediction to match solution shape
     u_pred_reshaped = np.reshape(u_pred, usol.shape, order='C')
     
-    # Select 4 time indices for plotting (reduced from 5)
+    # Select 4 time indices for plotting
     nt = len(t)
     t_indices = [0, nt//3, 2*nt//3, nt-1]
-    
-    fig, axes = plt.subplots(3, len(t_indices), figsize=(16, 12))
+    n_cols = len(t_indices)
     
     X, Y = np.meshgrid(x, y, indexing='ij')
     
@@ -510,43 +527,69 @@ def solutionplot_2D(u_pred, usol, x, y, t, diff_coeff_learned, X_obs, X_u_train)
     err_vmin = 0
     err_vmax = error_all.max()
     
-    for i, ti in enumerate(t_indices):
-        # True solution - fixed colorbar
-        im0 = axes[0, i].pcolormesh(X, Y, usol[:, :, ti], cmap='jet', shading='auto',
-                                     vmin=u_vmin, vmax=u_vmax)
-        axes[0, i].set_title(f'True, t={t[ti]:.3f}s')
-        axes[0, i].set_xlabel('x')
-        axes[0, i].set_ylabel('y')
-        axes[0, i].set_aspect('equal')
-        
-        # Predicted solution - fixed colorbar
-        im1 = axes[1, i].pcolormesh(X, Y, u_pred_reshaped[:, :, ti], cmap='jet', shading='auto',
-                                     vmin=u_vmin, vmax=u_vmax)
-        axes[1, i].set_title(f'Predicted, t={t[ti]:.3f}s')
-        axes[1, i].set_xlabel('x')
-        axes[1, i].set_ylabel('y')
-        axes[1, i].set_aspect('equal')
-        
-        # Error - fixed colorbar
-        error = np.abs(usol[:, :, ti] - u_pred_reshaped[:, :, ti])
-        im2 = axes[2, i].pcolormesh(X, Y, error, cmap='hot', shading='auto',
-                                     vmin=err_vmin, vmax=err_vmax)
-        axes[2, i].set_title(f'|Error|, t={t[ti]:.3f}s')
-        axes[2, i].set_xlabel('x')
-        axes[2, i].set_ylabel('y')
-        axes[2, i].set_aspect('equal')
+    # Create figure with GridSpec for precise control
+    # 4 columns for plots + 1 narrow column for colorbar
+    fig = plt.figure(figsize=(14, 10))
+    gs = gridspec.GridSpec(3, n_cols + 1, width_ratios=[1, 1, 1, 1, 0.05], 
+                           wspace=0.25, hspace=0.3)
     
-    # Add single colorbar per row
-    cbar0 = fig.colorbar(im0, ax=axes[0, :], orientation='vertical', fraction=0.02, pad=0.02)
-    cbar0.set_label('u (True)')
-    cbar1 = fig.colorbar(im1, ax=axes[1, :], orientation='vertical', fraction=0.02, pad=0.02)
-    cbar1.set_label('u (Predicted)')
-    cbar2 = fig.colorbar(im2, ax=axes[2, :], orientation='vertical', fraction=0.02, pad=0.02)
-    cbar2.set_label('|Error|')
+    # Row 0: True solution
+    axes_true = [fig.add_subplot(gs[0, i]) for i in range(n_cols)]
+    for i, ti in enumerate(t_indices):
+        im0 = axes_true[i].pcolormesh(X, Y, usol[:, :, ti], cmap='jet', shading='auto',
+                                       vmin=u_vmin, vmax=u_vmax)
+        axes_true[i].set_title(f'True, t={t[ti]:.3f}s', fontsize=10)
+        axes_true[i].set_xlabel('x', fontsize=9)
+        if i == 0:
+            axes_true[i].set_ylabel('y', fontsize=9)
+        axes_true[i].set_aspect('equal')
+        axes_true[i].tick_params(labelsize=8)
+    
+    # Colorbar for row 0
+    cax0 = fig.add_subplot(gs[0, n_cols])
+    cbar0 = fig.colorbar(im0, cax=cax0)
+    cbar0.set_label('u (True)', fontsize=9)
+    cbar0.ax.tick_params(labelsize=8)
+    
+    # Row 1: Predicted solution
+    axes_pred = [fig.add_subplot(gs[1, i]) for i in range(n_cols)]
+    for i, ti in enumerate(t_indices):
+        im1 = axes_pred[i].pcolormesh(X, Y, u_pred_reshaped[:, :, ti], cmap='jet', shading='auto',
+                                       vmin=u_vmin, vmax=u_vmax)
+        axes_pred[i].set_title(f'Predicted, t={t[ti]:.3f}s', fontsize=10)
+        axes_pred[i].set_xlabel('x', fontsize=9)
+        if i == 0:
+            axes_pred[i].set_ylabel('y', fontsize=9)
+        axes_pred[i].set_aspect('equal')
+        axes_pred[i].tick_params(labelsize=8)
+    
+    # Colorbar for row 1
+    cax1 = fig.add_subplot(gs[1, n_cols])
+    cbar1 = fig.colorbar(im1, cax=cax1)
+    cbar1.set_label('u (Pred)', fontsize=9)
+    cbar1.ax.tick_params(labelsize=8)
+    
+    # Row 2: Error
+    axes_err = [fig.add_subplot(gs[2, i]) for i in range(n_cols)]
+    for i, ti in enumerate(t_indices):
+        error = np.abs(usol[:, :, ti] - u_pred_reshaped[:, :, ti])
+        im2 = axes_err[i].pcolormesh(X, Y, error, cmap='hot', shading='auto',
+                                      vmin=err_vmin, vmax=err_vmax)
+        axes_err[i].set_title(f'|Error|, t={t[ti]:.3f}s', fontsize=10)
+        axes_err[i].set_xlabel('x', fontsize=9)
+        if i == 0:
+            axes_err[i].set_ylabel('y', fontsize=9)
+        axes_err[i].set_aspect('equal')
+        axes_err[i].tick_params(labelsize=8)
+    
+    # Colorbar for row 2
+    cax2 = fig.add_subplot(gs[2, n_cols])
+    cbar2 = fig.colorbar(im2, cax=cax2)
+    cbar2.set_label('|Error|', fontsize=9)
+    cbar2.ax.tick_params(labelsize=8)
     
     plt.suptitle(f'2D Diffusion: Learned D = {diff_coeff_learned:.4f} (True: {DIFF_COEFF_TRUE})', fontsize=14)
-    plt.tight_layout()
-    plt.savefig('diff2D_IDW_inverse.png', dpi=300)
+    plt.savefig('diff2D_IDW_inverse.png', dpi=300, bbox_inches='tight')
     print("Saved: diff2D_IDW_inverse.png")
 
 
@@ -604,6 +647,9 @@ if __name__ == "__main__":
         return loss_val, loss_bc, loss_data, loss_f, lam_bc, lam_data, lam_f
 
     print("\n--- Adam warm-up (IDW dynamic) ---")
+    adam_start_time = time.time()
+    last_print_time = adam_start_time
+    
     for epoch in range(1, ADAM_EPOCHS + 1):
         loss_val, L_bc, L_data, L_f, lam_bc, lam_data, lam_f = train_step()
         
@@ -617,6 +663,10 @@ if __name__ == "__main__":
         lam_f_history.append(lam_f.numpy())
         
         if epoch % PRINT_EVERY == 0 or epoch == 1 or epoch == ADAM_EPOCHS:
+            current_time = time.time()
+            elapsed = current_time - last_print_time
+            last_print_time = current_time
+            
             u_pred_tmp = PINN.evaluate(X_u_test)
             err_tmp = np.linalg.norm((u_test - u_pred_tmp), 2) / np.linalg.norm(u_test, 2)
             diff_err = np.abs(PINN.diff_coeff.numpy() - DIFF_COEFF_TRUE)
@@ -624,7 +674,10 @@ if __name__ == "__main__":
                   f"Ldata={L_data.numpy():.3e}  Lf={L_f.numpy():.3e}")
             print(f"             lam_bc={lam_bc.numpy():.3e}  lam_data={lam_data.numpy():.3e}  "
                   f"lam_f={lam_f.numpy():.3e}")
-            print(f"             relL2={err_tmp:.3e}  D={PINN.diff_coeff.numpy():.4f}  D_err={diff_err:.4f}")
+            print(f"             relL2={err_tmp:.3e}  D={PINN.diff_coeff.numpy():.4f}  D_err={diff_err:.4f}  dt={elapsed:.1f}s")
+
+    adam_total_time = time.time() - adam_start_time
+    print(f"\nAdam training time: {adam_total_time:.2f}s")
 
     # Freeze IDW weights before L-BFGS
     if FREEZE_BEFORE_LBFGS:
@@ -648,6 +701,10 @@ if __name__ == "__main__":
     lam_bc_history_lbfgs = []
     lam_data_history_lbfgs = []
     lam_f_history_lbfgs = []
+    
+    # Reset L-BFGS iteration counter
+    PINN.lbfgs_iter = 0
+    PINN.lbfgs_last_print_time = time.time()
 
     results = scipy.optimize.minimize(fun=PINN.optimizerfunc,
                                       x0=PINN.get_weights().numpy(),
@@ -660,13 +717,15 @@ if __name__ == "__main__":
                                                'ftol': 1 * np.finfo(float).eps,
                                                'gtol': 5e-8,
                                                'maxfun': 2000,
-                                               'maxiter': 3000,
+                                               'maxiter': 100,
                                                'iprint': -1,
                                                'maxls': 50})
 
     elapsed = time.time() - start_time
-    print('Training time: %.2f' % (elapsed))
-    print(results)
+    print(f'\nL-BFGS training time: {elapsed:.2f}s')
+    print(f'Total training time: {adam_total_time + elapsed:.2f}s')
+    print(f'L-BFGS termination: {results.message}')
+    print(f'L-BFGS iterations: {results.nit}, function evals: {results.nfev}')
 
     PINN.set_weights(results.x)
 
