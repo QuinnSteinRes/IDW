@@ -29,7 +29,7 @@ IDW_EMA_BETA = 0.9            # EMA smoothing for gradient energies
 IDW_EPS = 1e-12               # small epsilon to avoid divide-by-zero
 IDW_CLAMP = (1e-3, 1e3)       # clamp raw weights before normalization (stability)
 ADAM_LR = 1e-3
-ADAM_EPOCHS = 200            # More epochs for 2D inverse problem
+ADAM_EPOCHS = 4000            # More epochs for 2D inverse problem
 PRINT_EVERY = 200
 FREEZE_BEFORE_LBFGS = True    # freeze the learned weights before L-BFGS
 WEIGHT_SUM_TARGET = 3.0       # three tasks now (BC/IC, Data, PDE) -> normalize to sum ~ 3
@@ -40,40 +40,6 @@ N_obs = 500  # Sparse observations from interior (more for 2D)
 # Training parameters (will be set in main)
 N_u = 200   # Total number of BC/IC data points
 N_f = 2000  # Total number of collocation points (more for 2D)
-
-
-def print_configuration():
-    """Print all configuration parameters for reproducibility."""
-    print("\n" + "="*70)
-    print("CONFIGURATION SUMMARY")
-    print("="*70)
-    
-    print("\n--- Physics Parameters ---")
-    print(f"  DIFF_COEFF_TRUE     = {DIFF_COEFF_TRUE}")
-    print(f"  DIFF_COEFF_INIT     = {DIFF_COEFF_INIT}")
-    
-    print("\n--- IDW Weighting Parameters ---")
-    print(f"  IDW_EMA_BETA        = {IDW_EMA_BETA}")
-    print(f"  IDW_EPS             = {IDW_EPS}")
-    print(f"  IDW_CLAMP           = {IDW_CLAMP}")
-    print(f"  WEIGHT_SUM_TARGET   = {WEIGHT_SUM_TARGET}")
-    print(f"  FREEZE_BEFORE_LBFGS = {FREEZE_BEFORE_LBFGS}")
-    
-    print("\n--- Training Parameters ---")
-    print(f"  ADAM_LR             = {ADAM_LR}")
-    print(f"  ADAM_EPOCHS         = {ADAM_EPOCHS}")
-    print(f"  PRINT_EVERY         = {PRINT_EVERY}")
-    
-    print("\n--- Data Sampling Parameters ---")
-    print(f"  N_u (BC/IC points)  = {N_u}")
-    print(f"  N_f (collocation)   = {N_f}")
-    print(f"  N_obs (interior)    = {N_obs}")
-    
-    print("\n--- Random Seeds ---")
-    print(f"  numpy seed          = 123")
-    print(f"  tensorflow seed     = 123")
-    
-    print("="*70 + "\n")
 
 
 # Create training data for 2D diffusion
@@ -100,10 +66,6 @@ def trainingdata_2D(inputfile, N_u, N_f, N_obs):
     if 'diffCoeff' in data:
         global DIFF_COEFF_TRUE
         DIFF_COEFF_TRUE = float(data['diffCoeff'])
-    
-    print(f"nx = {len(x)}, ny = {len(y)}, nt = {len(t)}")
-    print(f"usol shape: {usol.shape}")
-    print(f"Domain: x in [{x.min():.2f}, {x.max():.2f}], y in [{y.min():.2f}, {y.max():.2f}], t in [{t.min():.2f}, {t.max():.2f}]")
 
     # Create meshgrid for all space-time points
     X, Y, T = np.meshgrid(x, y, t, indexing='ij')
@@ -121,9 +83,6 @@ def trainingdata_2D(inputfile, N_u, N_f, N_obs):
     # Domain bounds [x_min, y_min, t_min] and [x_max, y_max, t_max]
     lb = np.array([x.min(), y.min(), t.min()])
     ub = np.array([x.max(), y.max(), t.max()])
-    
-    print(f"Lower bound: {lb}")
-    print(f"Upper bound: {ub}")
 
     # -----------------------------------------
     # Boundary & Initial Conditions for 2D
@@ -182,23 +141,17 @@ def trainingdata_2D(inputfile, N_u, N_f, N_obs):
     # Stack all BC/IC points
     all_X_u_train = np.vstack(all_X_u_train)
     all_u_train = np.vstack(all_u_train)
-    
-    print(f"Total BC/IC points available: {all_X_u_train.shape[0]}")
 
     # Choose random N_u points for training BC/IC
     idx = np.random.choice(all_X_u_train.shape[0], min(N_u, all_X_u_train.shape[0]), replace=False)
     X_u_train = all_X_u_train[idx, :]
     u_train = all_u_train[idx, :]
-    
-    print(f"Selected BC/IC training points: {X_u_train.shape[0]}")
 
     # -----------------------------------------
     # Collocation Points using Latin Hypercube Sampling
     # -----------------------------------------
     X_f_train = lb + (ub - lb) * lhs(3, N_f)  # 3D: (x, y, t)
     X_f_train = np.vstack((X_f_train, X_u_train))  # append training points
-    
-    print(f"Collocation points: {X_f_train.shape[0]}")
 
     # -----------------------------------------
     # Interior observation points for INVERSE PROBLEM
@@ -218,8 +171,6 @@ def trainingdata_2D(inputfile, N_u, N_f, N_obs):
                                replace=False)
     X_obs = X_interior_all[idx_obs, :]
     u_obs = u_interior_all[idx_obs, :]
-    
-    print(f"Interior observation points: {X_obs.shape[0]}")
 
     return (X_f_train, X_u_train, u_train, X_u_test, u_test, 
             ub, lb, usol_reshaped, x, y, t, X_obs, u_obs)
@@ -604,9 +555,6 @@ if __name__ == "__main__":
     print("2D Diffusion Inverse Problem with IDW Weighting")
     print("="*60)
     
-    # Print configuration before starting
-    print_configuration()
-    
     (X_f_train, X_u_train, u_train, X_u_test, u_test, 
      ub, lb, usol, x, y, t, X_obs, u_obs) = trainingdata_2D(inputfilename, N_u, N_f, N_obs)
 
@@ -616,12 +564,8 @@ if __name__ == "__main__":
     PINN = Sequentialmodel(layers)
     init_params = PINN.get_weights().numpy()
 
-    print(f"\n--- Network Architecture ---")
-    print(f"  Layers: {layers}")
-    print(f"  Total parameters: {PINN.parameters + 1}")  # +1 for diff_coeff
-    print(f"\nTrue diffusion coefficient: {DIFF_COEFF_TRUE}")
-    print(f"Initial guess: {DIFF_COEFF_INIT}")
-    print(f"Interior observations: {N_obs}")
+    print(f"\nStarting training...")
+    print(f"  True D = {DIFF_COEFF_TRUE}, Initial D = {DIFF_COEFF_INIT}")
 
     # -----------------------------
     # Adam warm-up with dynamic IDW
@@ -677,14 +621,13 @@ if __name__ == "__main__":
             print(f"             relL2={err_tmp:.3e}  D={PINN.diff_coeff.numpy():.4f}  D_err={diff_err:.4f}  dt={elapsed:.1f}s")
 
     adam_total_time = time.time() - adam_start_time
-    print(f"\nAdam training time: {adam_total_time:.2f}s")
 
     # Freeze IDW weights before L-BFGS
     if FREEZE_BEFORE_LBFGS:
         _, _, _, _, lam_bc_last, lam_data_last, lam_f_last = PINN.loss(
             X_u_train, u_train, X_obs, u_obs, X_f_train)
         PINN.freeze_idw(lam_bc_last.numpy(), lam_data_last.numpy(), lam_f_last.numpy())
-        print(f"Froze IDW weights before L-BFGS: lam_bc={lam_bc_last.numpy():.6f}, "
+        print(f"\nFroze IDW weights: lam_bc={lam_bc_last.numpy():.6f}, "
               f"lam_data={lam_data_last.numpy():.6f}, lam_f={lam_f_last.numpy():.6f}")
 
     # -----------------------------
@@ -717,15 +660,11 @@ if __name__ == "__main__":
                                                'ftol': 1 * np.finfo(float).eps,
                                                'gtol': 5e-8,
                                                'maxfun': 2000,
-                                               'maxiter': 100,
+                                               'maxiter': 4000,
                                                'iprint': -1,
                                                'maxls': 50})
 
     elapsed = time.time() - start_time
-    print(f'\nL-BFGS training time: {elapsed:.2f}s')
-    print(f'Total training time: {adam_total_time + elapsed:.2f}s')
-    print(f'L-BFGS termination: {results.message}')
-    print(f'L-BFGS iterations: {results.nit}, function evals: {results.nfev}')
 
     PINN.set_weights(results.x)
 
@@ -734,14 +673,9 @@ if __name__ == "__main__":
     # -----------------------------
     u_pred = PINN.evaluate(X_u_test)
     error_vec = np.linalg.norm((u_test - u_pred), 2) / np.linalg.norm(u_test, 2)
-    print('Test Error: %.5f' % (error_vec))
 
     diff_coeff_learned = PINN.diff_coeff.numpy()
     diff_coeff_error = np.abs(diff_coeff_learned - DIFF_COEFF_TRUE)
-    print(f'\nDiffusion coefficient:')
-    print(f'  True:    {DIFF_COEFF_TRUE}')
-    print(f'  Learned: {diff_coeff_learned:.6f}')
-    print(f'  Error:   {diff_coeff_error:.6f} ({100*diff_coeff_error/DIFF_COEFF_TRUE:.2f}%)')
 
     # Solution plot
     solutionplot_2D(u_pred.numpy(), usol, x, y, t, diff_coeff_learned, X_obs, X_u_train)
@@ -865,4 +799,61 @@ if __name__ == "__main__":
     print("Saved: inverse_diagnostics_2D.png")
     plt.show()
 
-    print("\nDone!")
+    # -----------------------------
+    # Final Comprehensive Summary
+    # -----------------------------
+    print("\n" + "="*70)
+    print("FINAL SUMMARY")
+    print("="*70)
+    
+    print("\n--- Configuration ---")
+    print(f"  DIFF_COEFF_TRUE     = {DIFF_COEFF_TRUE}")
+    print(f"  DIFF_COEFF_INIT     = {DIFF_COEFF_INIT}")
+    print(f"  IDW_EMA_BETA        = {IDW_EMA_BETA}")
+    print(f"  IDW_EPS             = {IDW_EPS}")
+    print(f"  IDW_CLAMP           = {IDW_CLAMP}")
+    print(f"  WEIGHT_SUM_TARGET   = {WEIGHT_SUM_TARGET}")
+    print(f"  FREEZE_BEFORE_LBFGS = {FREEZE_BEFORE_LBFGS}")
+    print(f"  ADAM_LR             = {ADAM_LR}")
+    print(f"  ADAM_EPOCHS         = {ADAM_EPOCHS}")
+    
+    print("\n--- Data ---")
+    print(f"  Input file          = {inputfilename}")
+    print(f"  nx={len(x)}, ny={len(y)}, nt={len(t)}")
+    print(f"  Domain: x in [{x.min():.2f},{x.max():.2f}], y in [{y.min():.2f},{y.max():.2f}], t in [{t.min():.2f},{t.max():.2f}]")
+    print(f"  N_u (BC/IC points)  = {N_u}")
+    print(f"  N_f (collocation)   = {N_f}")
+    print(f"  N_obs (interior)    = {N_obs}")
+    
+    print("\n--- Network ---")
+    print(f"  Layers              = {list(layers)}")
+    print(f"  Total parameters    = {PINN.parameters + 1}")
+    
+    print("\n--- Training Time ---")
+    print(f"  Adam time           = {adam_total_time:.2f}s")
+    print(f"  L-BFGS time         = {elapsed:.2f}s")
+    print(f"  Total time          = {adam_total_time + elapsed:.2f}s")
+    print(f"  L-BFGS iterations   = {results.nit}")
+    print(f"  L-BFGS func evals   = {results.nfev}")
+    lbfgs_msg = results.message.decode() if isinstance(results.message, bytes) else results.message
+    print(f"  L-BFGS termination  = {lbfgs_msg}")
+    
+    print("\n--- Results ---")
+    print(f"  D_true              = {DIFF_COEFF_TRUE}")
+    print(f"  D_learned           = {diff_coeff_learned:.6f}")
+    print(f"  D_error             = {diff_coeff_error:.6f} ({100*diff_coeff_error/DIFF_COEFF_TRUE:.2f}%)")
+    print(f"  Relative L2 error   = {error_vec:.5e}")
+    
+    print("\n--- Final IDW Weights ---")
+    final_lam_bc = lam_bc_history_lbfgs[-1] if lam_bc_history_lbfgs else lam_bc_history[-1]
+    final_lam_data = lam_data_history_lbfgs[-1] if lam_data_history_lbfgs else lam_data_history[-1]
+    final_lam_f = lam_f_history_lbfgs[-1] if lam_f_history_lbfgs else lam_f_history[-1]
+    print(f"  lambda_bc           = {final_lam_bc:.6f}")
+    print(f"  lambda_data         = {final_lam_data:.6f}")
+    print(f"  lambda_f            = {final_lam_f:.6f}")
+    
+    print("\n--- Output Files ---")
+    print(f"  diff2D_IDW_inverse.png")
+    print(f"  inverse_diagnostics_2D.png")
+    
+    print("="*70)
