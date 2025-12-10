@@ -38,7 +38,12 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
     os.makedirs(output_dir, exist_ok=True)
     
     # Reshape prediction to match solution shape if needed
+    if u_pred.ndim == 2 and u_pred.shape[1] == 1:
+        # Flatten if it's (N, 1) shaped
+        u_pred = u_pred.flatten()
+    
     if u_pred.ndim == 1:
+        # Reshape from flattened to (Nx+1, Ny+1, Nt)
         u_pred_reshaped = np.reshape(u_pred, usol.shape, order='C')
     else:
         u_pred_reshaped = u_pred

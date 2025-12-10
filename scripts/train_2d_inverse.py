@@ -133,8 +133,9 @@ def main():
     """Main execution flow."""
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Train 2D diffusion inverse PINN')
-    parser.add_argument('--config', type=str, default='configs/default_2d_inverse.yaml',
-                       help='Path to configuration file')
+    parser.add_argument('--config', type=str, 
+                    default='../configs/default_2d_inverse.yaml',  # ← relative to scripts/
+                    help='Path to configuration file')
     parser.add_argument('--output-dir', type=str, default='outputs',
                        help='Directory for output files')
     args = parser.parse_args()

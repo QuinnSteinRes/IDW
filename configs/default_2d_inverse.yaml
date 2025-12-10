@@ -31,7 +31,7 @@ training:
 
 # Data parameters
 data:
-  input_file: "gtDiff2D.mat"  # Path to ground truth data
+  input_file: "src/idw_pinn/data/gtDiff2D.mat"  # Path to ground truth data
   n_u: 200                     # BC/IC points
   n_f: 2000                    # Collocation points (PDE residual)
   n_obs: 500                   # Interior observation points (for inverse problem)
