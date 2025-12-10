@@ -1,0 +1,32 @@
+# 2D Diffusion Inverse Problem Configuration
+
+# Physics parameters
+physics:
+  diff_coeff_true: 0.2
+  diff_coeff_init: 0.5
+
+# IDW weighting parameters
+idw:
+  ema_beta: 0.9
+  eps: 1.0e-12
+  clamp_min: 1.0e-3
+  clamp_max: 1.0e+3
+  weight_sum_target: 3.0
+  freeze_before_lbfgs: true
+
+# Training parameters
+training:
+  adam_lr: 1.0e-3
+  adam_epochs: 4000
+  print_every: 200
+
+# Data parameters
+data:
+  input_file: "gtDiff2D.mat"
+  n_u: 200        # BC/IC points
+  n_f: 2000       # Collocation points
+  n_obs: 500      # Interior observation points
+
+# Network architecture
+network:
+  layers: [3, 64, 64, 64, 64, 1]
