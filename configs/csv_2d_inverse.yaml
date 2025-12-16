@@ -5,8 +5,8 @@
 physics:
   # True diffusion coefficient (for validation with synthetic data)
   # For experimental data, this may be unknown or estimated
-  diff_coeff_true: 0.5    # In normalized units (or pixel²/frame for unnormalized)
-  diff_coeff_init: 1.0     # Initial guess (deliberately far from true value)
+  diff_coeff_true: 0.05    # In normalized units (or pixel²/frame for unnormalized)
+  diff_coeff_init: 0.5     # Initial guess (deliberately far from true value)
 
 # IDW weighting parameters
 idw:
@@ -20,8 +20,8 @@ idw:
 # Training parameters
 training:
   adam_lr: 1.0e-3           # Adam optimizer learning rate
-  adam_epochs: 2000         # Number of Adam epochs (more for CSV data)
-  print_every: 250          # Print/log frequency
+  adam_epochs: 4000         # Number of Adam epochs (more for CSV data)
+  print_every: 200          # Print/log frequency
   
   # L-BFGS parameters
   lbfgs_maxiter: 4000
@@ -33,11 +33,11 @@ training:
 
 # Data parameters - CSV format
 data:
-  input_file: "data/synthetic_diffusion.csv"  # Path to CSV file
+  input_file: "data/synthetic_diffusion.csv"   # Path to CSV file
   data_format: "csv"                           # "csv" or "mat"
-  n_u: 1000                                     # BC/IC points (more for larger grids)
-  n_f: 10000                                    # Collocation points
-  n_obs: 10000                                  # Interior observation points
+  n_u: 200                                     # BC/IC points (more for larger grids)
+  n_f: 2000                                    # Collocation points
+  n_obs: 500                                   # Interior observation points
   
   # Normalization options
   normalize_coords: true      # Normalize x,y,t to [0,1]

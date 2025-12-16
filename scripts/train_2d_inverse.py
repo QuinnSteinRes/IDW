@@ -1,14 +1,18 @@
 """
 Main training script for 2D diffusion inverse problem with IDW-PINN.
 
+Supports both MAT and CSV data formats via unified loader.
+
 Orchestrates:
 - Configuration loading
-- Data preparation
+- Data preparation (auto-selects loader based on file format)
 - Model initialization
 - Two-phase training (Adam + L-BFGS)
 - Visualization and results summary
 
-Extracted from legacy: 2D_num_inv_IDW_newPrintOut_newFigs.py (main code section)
+Usage:
+    python scripts/train_2d_inverse.py --config configs/default_2d_inverse.yaml
+    python scripts/train_2d_inverse.py --config configs/csv_2d_inverse.yaml
 """
 import os
 import sys
@@ -20,7 +24,7 @@ import tensorflow as tf
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from idw_pinn.config import Config
-from idw_pinn.data import load_2d_diffusion_data
+from idw_pinn.data import load_data  # Unified loader that auto-selects by format
 from idw_pinn.models import PINN
 from idw_pinn.training import IDWPINNTrainer
 from idw_pinn.utils import plot_2d_solution_comparison, plot_training_diagnostics
@@ -29,8 +33,6 @@ from idw_pinn.utils import plot_2d_solution_comparison, plot_training_diagnostic
 def setup_environment(seed=123):
     """
     Configure reproducibility and TensorFlow environment.
-    
-    Extracted from legacy: lines immediately after imports
     """
     # Disable oneDNN custom operations
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
@@ -42,21 +44,25 @@ def setup_environment(seed=123):
     print(f"TensorFlow version: {tf.__version__}")
 
 
-def print_header(config):
+def print_header(config, data):
     """Print formatted header with problem description."""
     print("\n" + "="*70)
     print("2D Diffusion Inverse Problem with IDW Weighting")
     print("="*70)
     print(f"\nConfiguration: {config.data.input_file}")
-    print(f"True D = {config.physics.diff_coeff_true}")
+    
+    # Handle case where diff_coeff_true might be None (experimental data)
+    if data.get('diff_coeff_true') is not None:
+        print(f"True D = {data['diff_coeff_true']}")
+    else:
+        print("True D = Unknown (experimental data)")
+    
     print(f"Initial D guess = {config.physics.diff_coeff_init}")
 
 
 def print_final_summary(config, data, model, training_results, output_dir='outputs'):
     """
-    Print comprehensive final summary matching legacy format.
-    
-    Extracted from legacy: lines ~820-850 (final summary block)
+    Print comprehensive final summary.
     """
     print("\n" + "="*70)
     print("FINAL SUMMARY")
@@ -64,7 +70,11 @@ def print_final_summary(config, data, model, training_results, output_dir='outpu
     
     # Configuration
     print("\n--- Configuration ---")
-    print(f"  DIFF_COEFF_TRUE     = {config.physics.diff_coeff_true}")
+    diff_coeff_true = data.get('diff_coeff_true')
+    if diff_coeff_true is not None:
+        print(f"  DIFF_COEFF_TRUE     = {diff_coeff_true}")
+    else:
+        print(f"  DIFF_COEFF_TRUE     = Unknown")
     print(f"  DIFF_COEFF_INIT     = {config.physics.diff_coeff_init}")
     print(f"  IDW_EMA_BETA        = {config.idw.ema_beta}")
     print(f"  IDW_EPS             = {config.idw.eps}")
@@ -79,12 +89,23 @@ def print_final_summary(config, data, model, training_results, output_dir='outpu
     x, y, t = data['grid']
     print(f"  Input file          = {config.data.input_file}")
     print(f"  nx={len(x)}, ny={len(y)}, nt={len(t)}")
-    print(f"  Domain: x in [{x.min():.2f},{x.max():.2f}], "
-          f"y in [{y.min():.2f},{y.max():.2f}], "
-          f"t in [{t.min():.2f},{t.max():.2f}]")
+    print(f"  Domain: x in [{x.min():.4f},{x.max():.4f}], "
+          f"y in [{y.min():.4f},{y.max():.4f}], "
+          f"t in [{t.min():.4f},{t.max():.4f}]")
     print(f"  N_u (BC/IC points)  = {config.data.n_u}")
     print(f"  N_f (collocation)   = {config.data.n_f}")
     print(f"  N_obs (interior)    = {config.data.n_obs}")
+    
+    # Metadata (for CSV data)
+    if 'metadata' in data:
+        meta = data['metadata']
+        print("\n--- Data Metadata ---")
+        if 'x_range' in meta:
+            print(f"  Original X range    = {meta['x_range']}")
+            print(f"  Original Y range    = {meta['y_range']}")
+            print(f"  Original T range    = {meta['t_range']}")
+        if 'intensity_range' in meta:
+            print(f"  Intensity range     = {meta['intensity_range']}")
     
     # Network
     print("\n--- Network ---")
@@ -106,11 +127,23 @@ def print_final_summary(config, data, model, training_results, output_dir='outpu
     
     # Results
     print("\n--- Results ---")
-    print(f"  D_true              = {data['diff_coeff_true']}")
-    print(f"  D_learned           = {training_results['diff_coeff_learned']:.6f}")
-    print(f"  D_error             = {training_results['diff_coeff_error']:.6f} "
-          f"({100*training_results['diff_coeff_error']/data['diff_coeff_true']:.2f}%)")
+    if diff_coeff_true is not None:
+        print(f"  D_true              = {diff_coeff_true}")
+        print(f"  D_learned           = {training_results['diff_coeff_learned']:.6f}")
+        print(f"  D_error             = {training_results['diff_coeff_error']:.6f} "
+              f"({100*training_results['diff_coeff_error']/diff_coeff_true:.2f}%)")
+    else:
+        print(f"  D_learned           = {training_results['diff_coeff_learned']:.6f}")
+        print(f"  D_error             = N/A (no ground truth)")
     print(f"  Relative L2 error   = {training_results['final_error']:.5e}")
+    
+    # Unit conversion hint for CSV data
+    if 'metadata' in data:
+        print("\n--- Unit Conversion ---")
+        print(f"  D_learned is in normalized units.")
+        print(f"  To convert to physical units, use:")
+        print(f"    from idw_pinn.data import convert_diffusion_coefficient")
+        print(f"    result = convert_diffusion_coefficient(D_learned, metadata, pixel_size_um, frame_time_s)")
     
     # Final IDW Weights
     print("\n--- Final IDW Weights ---")
@@ -134,10 +167,10 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Train 2D diffusion inverse PINN')
     parser.add_argument('--config', type=str, 
-                    default='../configs/default_2d_inverse.yaml',  # ← relative to scripts/
-                    help='Path to configuration file')
+                        default='configs/default_2d_inverse.yaml',
+                        help='Path to configuration file')
     parser.add_argument('--output-dir', type=str, default='outputs',
-                       help='Directory for output files')
+                        help='Directory for output files')
     args = parser.parse_args()
     
     # Setup
@@ -145,13 +178,17 @@ def main():
     
     # Load configuration
     config = Config(args.config)
-    print_header(config)
     
-    # Load data
+    # Load data using unified loader (auto-selects CSV or MAT based on file extension)
     print("\n--- Loading Data ---")
-    data = load_2d_diffusion_data(config)
+    data = load_data(config)
+    
+    # Print header after loading data (so we know if diff_coeff_true is available)
+    print_header(config, data)
+    
     print(f"Loaded {config.data.input_file}")
-    print(f"  Ground truth D = {data['diff_coeff_true']}")
+    if data.get('diff_coeff_true') is not None:
+        print(f"  Ground truth D = {data['diff_coeff_true']}")
     print(f"  Training points: BC/IC={data['X_u_train'].shape[0]}, "
           f"Observations={data['X_obs'].shape[0]}, "
           f"Collocation={data['X_f_train'].shape[0]}")
@@ -184,6 +221,11 @@ def main():
     # Solution comparison plot
     u_pred = model.evaluate(data['X_u_test']).numpy()
     x, y, t = data['grid']
+    
+    diff_coeff_true = data.get('diff_coeff_true')
+    if diff_coeff_true is None:
+        diff_coeff_true = training_results['diff_coeff_learned']  # Use learned as placeholder
+    
     plot_2d_solution_comparison(
         u_pred=u_pred,
         usol=data['usol'],
@@ -191,7 +233,7 @@ def main():
         y=y,
         t=t,
         diff_coeff_learned=training_results['diff_coeff_learned'],
-        diff_coeff_true=data['diff_coeff_true'],
+        diff_coeff_true=diff_coeff_true,
         output_dir=args.output_dir,
         filename='diff2D_IDW_inverse.png'
     )
@@ -200,7 +242,7 @@ def main():
     plot_training_diagnostics(
         history_adam=training_results['history'],
         history_lbfgs=training_results['history_lbfgs'],
-        diff_coeff_true=data['diff_coeff_true'],
+        diff_coeff_true=diff_coeff_true,
         output_dir=args.output_dir,
         filename='inverse_diagnostics_2D.png'
     )

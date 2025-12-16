@@ -3,32 +3,27 @@ Generate synthetic diffusion data in CSV format matching experimental structure.
 
 This script creates a synthetic dataset that mimics the structure of experimental
 microscopy data (x, y, t, intensity columns) while solving the diffusion equation
-with a known diffusion coefficient. This allows verification of the CSV data
-pipeline before using real experimental data.
-
-Experimental data structure (from intensity_time_series_spatial_temporal.csv):
-- x: pixel coordinates (e.g., 2450-2749, 300 unique values)
-- y: pixel coordinates (e.g., 800-899, 100 unique values)
-- t: frame numbers (e.g., 0-7, 8 unique values)
-- intensity: grayscale values (e.g., 10-204)
-
-The synthetic data uses the same grid structure but with a known initial condition
-and diffusion coefficient, enabling ground-truth validation of inverse problem results.
+with a known diffusion coefficient.
 
 Usage:
-    python data/generate_synthetic_csv.py [--output OUTPUT] [--diff-coeff D]
+    python data/generate_synthetic_csv.py [--output OUTPUT] [--diff-coeff D] [--bc-type TYPE]
     
-Example:
+Examples:
+    # Neumann BCs (default, for experimental-like data)
     python data/generate_synthetic_csv.py --output data/synthetic_diffusion.csv --diff-coeff 0.001
+    
+    # Dirichlet BCs (matches validated .mat pipeline)
+    python data/generate_synthetic_csv.py --output data/synthetic_diffusion.csv --diff-coeff 0.05 --bc-type dirichlet --ic-type sine
 """
 
 import numpy as np
 import pandas as pd
 import argparse
 from pathlib import Path
+import json
 
 
-def solve_diffusion_2d(nx, ny, nt, dx, dy, dt, D, u0):
+def solve_diffusion_2d(nx, ny, nt, dx, dy, dt, D, u0, bc_type='neumann'):
     """
     Solve 2D diffusion equation using Forward Euler (explicit) method.
     
@@ -48,6 +43,8 @@ def solve_diffusion_2d(nx, ny, nt, dx, dy, dt, D, u0):
         Diffusion coefficient
     u0 : ndarray
         Initial condition, shape (nx, ny)
+    bc_type : str
+        'neumann' (zero flux) or 'dirichlet' (u=0 at boundaries)
         
     Returns:
     --------
@@ -72,17 +69,23 @@ def solve_diffusion_2d(nx, ny, nt, dx, dy, dt, D, u0):
                               Fx * (u[n, 0:-2, 1:-1] - 2*u[n, 1:-1, 1:-1] + u[n, 2:, 1:-1]) +
                               Fy * (u[n, 1:-1, 0:-2] - 2*u[n, 1:-1, 1:-1] + u[n, 1:-1, 2:]))
         
-        # Neumann boundary conditions (zero flux) - common for experimental ROI
-        # This is more realistic than Dirichlet for an ROI extracted from a larger image
-        u[n+1, 0, :] = u[n+1, 1, :]      # left boundary
-        u[n+1, -1, :] = u[n+1, -2, :]    # right boundary
-        u[n+1, :, 0] = u[n+1, :, 1]      # bottom boundary
-        u[n+1, :, -1] = u[n+1, :, -2]    # top boundary
+        if bc_type == 'neumann':
+            # Neumann boundary conditions (zero flux) - for experimental ROI
+            u[n+1, 0, :] = u[n+1, 1, :]      # left boundary
+            u[n+1, -1, :] = u[n+1, -2, :]    # right boundary
+            u[n+1, :, 0] = u[n+1, :, 1]      # bottom boundary
+            u[n+1, :, -1] = u[n+1, :, -2]    # top boundary
+        else:  # dirichlet
+            # Dirichlet boundary conditions (u=0) - matches gtDataGen2D.py
+            u[n+1, 0, :] = 0.0   # left boundary
+            u[n+1, -1, :] = 0.0  # right boundary
+            u[n+1, :, 0] = 0.0   # bottom boundary
+            u[n+1, :, -1] = 0.0  # top boundary
     
     return u
 
 
-def create_initial_condition(nx, ny, x, y, ic_type='gaussian'):
+def create_initial_condition(nx, ny, x, y, ic_type='gaussian', bc_type='neumann'):
     """
     Create initial condition for diffusion simulation.
     
@@ -93,33 +96,42 @@ def create_initial_condition(nx, ny, x, y, ic_type='gaussian'):
     x, y : ndarray
         Coordinate arrays
     ic_type : str
-        Type of initial condition: 'gaussian', 'sine', 'step', 'experimental_like'
+        Type of initial condition:
+        - 'gaussian': Single Gaussian blob
+        - 'sine': sin(pi*x)*sin(pi*y) - compatible with Dirichlet BCs
+        - 'step': Step function
+        - 'experimental_like': Multiple Gaussian blobs
+    bc_type : str
+        Boundary condition type (affects IC normalization for 'sine')
         
     Returns:
     --------
     u0 : ndarray
-        Initial condition array, shape (nx, ny)
+        Initial condition array of shape (nx, ny)
     """
+    # Create meshgrid for IC computation
     X, Y = np.meshgrid(x, y, indexing='ij')
     
-    # Normalize coordinates to [0, 1] for IC definition
+    # Normalize to [0, 1] for IC computation
     x_norm = (X - X.min()) / (X.max() - X.min())
     y_norm = (Y - Y.min()) / (Y.max() - Y.min())
     
     if ic_type == 'gaussian':
-        # Single Gaussian blob in center
+        # Single Gaussian blob centered in domain
         cx, cy = 0.5, 0.5
         sigma = 0.15
         u0 = np.exp(-((x_norm - cx)**2 + (y_norm - cy)**2) / (2 * sigma**2))
         
     elif ic_type == 'sine':
-        # Product of sines (smooth, known analytical behavior)
+        # sin(pi*x)*sin(pi*y) - naturally satisfies Dirichlet BCs (u=0 at boundaries)
+        # This matches the IC used in gtDataGen2D.py
         u0 = np.sin(np.pi * x_norm) * np.sin(np.pi * y_norm)
         
     elif ic_type == 'step':
-        # Step function (sharp gradient, tests high-frequency capture)
-        u0 = np.where((x_norm > 0.3) & (x_norm < 0.7) & 
-                      (y_norm > 0.3) & (y_norm < 0.7), 1.0, 0.0)
+        # Step function in center region
+        u0 = np.zeros_like(X, dtype=np.float64)
+        mask = (x_norm > 0.3) & (x_norm < 0.7) & (y_norm > 0.3) & (y_norm < 0.7)
+        u0[mask] = 1.0
         
     elif ic_type == 'experimental_like':
         # Mimics dye diffusion: bright spot that spreads
@@ -131,16 +143,25 @@ def create_initial_condition(nx, ny, x, y, ic_type='gaussian'):
         sigma = 0.12
         u0 += 0.8 * np.exp(-((x_norm - cx)**2 + (y_norm - cy)**2) / (2 * sigma**2))
         
-        # Secondary region
-        cx2, cy2 = 0.65, 0.45
+        # Secondary blob
+        cx2, cy2 = 0.6, 0.4
         sigma2 = 0.08
         u0 += 0.5 * np.exp(-((x_norm - cx2)**2 + (y_norm - cy2)**2) / (2 * sigma2**2))
         
-        # Add slight background gradient (common in experimental data)
-        u0 += 0.1 * x_norm
+        # Small hot spot
+        cx3, cy3 = 0.3, 0.6
+        sigma3 = 0.05
+        u0 += 0.3 * np.exp(-((x_norm - cx3)**2 + (y_norm - cy3)**2) / (2 * sigma3**2))
         
     else:
         raise ValueError(f"Unknown IC type: {ic_type}")
+    
+    # For Dirichlet BCs, ensure boundaries are zero
+    if bc_type == 'dirichlet':
+        u0[0, :] = 0.0
+        u0[-1, :] = 0.0
+        u0[:, 0] = 0.0
+        u0[:, -1] = 0.0
     
     return u0
 
@@ -149,7 +170,7 @@ def solution_to_csv(u, x_coords, y_coords, t_coords,
                     intensity_min=10, intensity_max=204,
                     x_offset=0, y_offset=0):
     """
-    Convert solution array to CSV format matching experimental structure.
+    Convert solution array to CSV format matching experimental data structure.
     
     Parameters:
     -----------
@@ -210,8 +231,9 @@ def generate_synthetic_csv(
     y_start=800,
     # Physical parameters
     diff_coeff=0.001,  # Diffusion coefficient in pixel²/frame units
-    # Initial condition
+    # Initial condition and boundary conditions
     ic_type='experimental_like',
+    bc_type='neumann',
     # Output scaling
     intensity_min=10,
     intensity_max=204,
@@ -233,6 +255,8 @@ def generate_synthetic_csv(
         True diffusion coefficient (in pixel²/frame units)
     ic_type : str
         Initial condition type
+    bc_type : str
+        Boundary condition type: 'neumann' or 'dirichlet'
     intensity_min, intensity_max : int
         Intensity range for output
     output_path : str
@@ -278,20 +302,21 @@ def generate_synthetic_csv(
     print(f"Coordinates: x=[{x_start}, {x_start+nx-1}], y=[{y_start}, {y_start+ny-1}], t=[0, {nt-1}]")
     print(f"Diffusion coefficient: D = {diff_coeff} pixel²/frame")
     print(f"Initial condition: {ic_type}")
+    print(f"Boundary conditions: {bc_type}")
     
     # Create initial condition
-    u0 = create_initial_condition(nx, ny, x, y, ic_type)
+    u0 = create_initial_condition(nx, ny, x, y, ic_type, bc_type)
     print(f"Initial intensity range: [{u0.min():.3f}, {u0.max():.3f}]")
     
     # Solve diffusion equation
     # If we need substeps, solve at higher temporal resolution then subsample
     if n_substeps > 1:
         nt_sim = (nt - 1) * n_substeps + 1
-        u_fine = solve_diffusion_2d(nx, ny, nt_sim, dx, dy, dt_sim, diff_coeff, u0)
+        u_fine = solve_diffusion_2d(nx, ny, nt_sim, dx, dy, dt_sim, diff_coeff, u0, bc_type)
         # Subsample to original frame rate
         u = u_fine[::n_substeps, :, :]
     else:
-        u = solve_diffusion_2d(nx, ny, nt, dx, dy, dt_sim, diff_coeff, u0)
+        u = solve_diffusion_2d(nx, ny, nt, dx, dy, dt_sim, diff_coeff, u0, bc_type)
     
     print(f"Solution computed: shape = {u.shape}")
     print(f"Final intensity range: [{u[-1].min():.3f}, {u[-1].max():.3f}]")
@@ -312,52 +337,54 @@ def generate_synthetic_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)
-    print(f"\nSaved CSV: {output_path}")
+    print(f"\nSaved CSV to: {output_path}")
     
-    # Metadata for ground truth comparison
+    # Metadata
     metadata = {
         'diff_coeff_true': diff_coeff,
         'nx': nx,
         'ny': ny,
         'nt': nt,
-        'x_start': x_start,
-        'y_start': y_start,
+        'x_range': [x_start, x_start + nx - 1],
+        'y_range': [y_start, y_start + ny - 1],
+        't_range': [0, nt - 1],
+        'ic_type': ic_type,
+        'bc_type': bc_type,
+        'intensity_range': [intensity_min, intensity_max],
         'dx': dx,
         'dy': dy,
-        'dt': dt,
-        'ic_type': ic_type,
-        'intensity_min': intensity_min,
-        'intensity_max': intensity_max,
-        'boundary_conditions': 'neumann'  # Zero-flux, realistic for ROI
+        'dt': dt
     }
     
-    # Optionally save .mat file for ground truth comparison
+    # Save metadata as JSON
+    json_path = output_path.with_suffix('.json')
+    with open(json_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Saved metadata to: {json_path}")
+    
+    # Optionally save as .mat file for comparison with synthetic pipeline
     if save_mat:
-        import scipy.io
-        mat_path = output_path.with_suffix('.mat')
+        from scipy.io import savemat
+        
+        # Create coordinate arrays matching gtDataGen2D.py format
+        # Normalized to [0, 1] domain
+        x_norm = np.linspace(0, 1, nx)
+        y_norm = np.linspace(0, 1, ny)
+        t_norm = np.linspace(0, 1, nt)
+        
         mat_data = {
             'usol': u,  # Shape: (nt, nx, ny)
-            'x': x + x_start,
-            'y': y + y_start,
-            't': t,
+            'x': x_norm,
+            'y': y_norm,
+            't': t_norm,
             'diffCoeff': diff_coeff,
+            'bc_type': bc_type,
             'ic_type': ic_type
         }
-        scipy.io.savemat(mat_path, mat_data)
-        print(f"Saved MAT: {mat_path}")
-    
-    # Save metadata as JSON
-    import json
-    meta_path = output_path.with_suffix('.json')
-    with open(meta_path, 'w') as f:
-        json.dump(metadata, f, indent=2)
-    print(f"Saved metadata: {meta_path}")
-    
-    print("\n" + "="*60)
-    print("GENERATION COMPLETE")
-    print("="*60)
-    print(f"\nGround truth diffusion coefficient: D = {diff_coeff}")
-    print(f"Use this value to validate inverse problem results.")
+        
+        mat_path = output_path.with_suffix('.mat')
+        savemat(mat_path, mat_data)
+        print(f"Saved .mat ground truth to: {mat_path}")
     
     return df, metadata
 
@@ -418,6 +445,9 @@ if __name__ == "__main__":
     parser.add_argument('--ic-type', type=str, default='experimental_like',
                         choices=['gaussian', 'sine', 'step', 'experimental_like'],
                         help='Initial condition type')
+    parser.add_argument('--bc-type', type=str, default='neumann',
+                        choices=['neumann', 'dirichlet'],
+                        help='Boundary condition type (dirichlet matches gtDataGen2D.py)')
     parser.add_argument('--analyze', type=str, default=None,
                         help='Analyze existing CSV file instead of generating')
     
@@ -432,5 +462,6 @@ if __name__ == "__main__":
             nt=args.nt,
             diff_coeff=args.diff_coeff,
             ic_type=args.ic_type,
+            bc_type=args.bc_type,
             output_path=args.output
         )
