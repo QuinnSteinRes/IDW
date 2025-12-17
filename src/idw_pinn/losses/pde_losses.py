@@ -142,6 +142,13 @@ def _compute_idw_weights(model, x_bc, y_bc, x_obs, u_obs, x_f, config):
     Returns:
         Tuple of (lam_bc, lam_data, lam_f) weight tensors
     """
+
+        # Check if IDW is disabled (uniform weights mode)
+    if hasattr(config.idw, 'enabled') and not config.idw.enabled:
+        return (tf.constant(1.0, dtype=tf.float64),
+                tf.constant(1.0, dtype=tf.float64),
+                tf.constant(1.0, dtype=tf.float64))
+    
     # Compute gradient energies for each loss component
     g2_bc = _grad_energy(model, lambda: loss_BC(model, x_bc, y_bc))
     g2_data = _grad_energy(model, lambda: loss_Data(model, x_obs, u_obs))
