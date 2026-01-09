@@ -227,24 +227,21 @@ def main():
         diff_coeff_true = training_results['diff_coeff_learned']  # Use learned as placeholder
     
     plot_2d_solution_comparison(
-        u_pred=u_pred,
-        usol=data['usol'],
-        x=x,
-        y=y,
-        t=t,
-        diff_coeff_learned=training_results['diff_coeff_learned'],
-        diff_coeff_true=diff_coeff_true,
-        output_dir=args.output_dir,
-        filename='diff2D_IDW_inverse.png'
+    u_pred=u_pred,
+    usol=data['usol'],
+    x=x,
+    y=y,
+    t=t,
+    diff_coeff_learned=training_results['diff_coeff_learned'],
+    diff_coeff_true=diff_coeff_true,
+    output_dir=args.output_dir
     )
-    
-    # Training diagnostics plot
+
     plot_training_diagnostics(
         history_adam=training_results['history'],
         history_lbfgs=training_results['history_lbfgs'],
         diff_coeff_true=diff_coeff_true,
-        output_dir=args.output_dir,
-        filename='inverse_diagnostics_2D.png'
+        output_dir=args.output_dir
     )
     
     # Print comprehensive summary
