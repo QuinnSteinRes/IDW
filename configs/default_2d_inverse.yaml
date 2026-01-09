@@ -19,7 +19,7 @@ idw:
 # Training parameters
 training:
   adam_lr: 1.0e-3         # Adam optimizer learning rate
-  adam_epochs: 10       # Number of Adam epochs 4000
+  adam_epochs: 10     # Number of Adam epochs 4000
   print_every: 200        # Print/log frequency (in epochs)
   
   # L-BFGS parameters (scipy.optimize.minimize)
@@ -47,23 +47,6 @@ data:
 # Network architecture
 network:
   layers: [3, 64, 64, 64, 1]  # [input(x,y,t), hidden..., output(u)] [3, 64, 64, 64, 64, 1]
-
-
-# Visualization
-visualization:
-  axis_limits:
-    # Diagnostic plots (y-axis limits)
-    D_ylim: [1.0e-4, 1.0e0]           # Diffusion coefficient evolution
-    D_error_ylim: [1.0e-3, 1.0e2]     # D relative error (%)
-    loss_ylim: [1.0e-8, 1.0e2]        # Individual losses (BC/IC, data, PDE)
-    total_loss_ylim: [1.0e-6, 1.0e1]  # Total loss
-    lambda_ylim: [1.0e-4, 1.0e2]      # IDW weights (log scale)
-    
-    # Solution plots (colorbar limits)
-    u_vlim: [0.0, 1.0]                # Concentration field [vmin, vmax]
-    error_vlim: [0.0, 50.0]           # Percent error [vmin, vmax]
-
-
 
 
 
