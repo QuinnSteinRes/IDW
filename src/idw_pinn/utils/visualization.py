@@ -272,19 +272,13 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
     plt.suptitle(f'2D Diffusion: Learned D = {diff_coeff_learned:.6f} ({d_display})',
                  fontsize=FONT_CONFIG['suptitle'])
     
-    # Save whole figure
-    filepath = os.path.join(output_dir, filename)
+    # Save as PDF only
+    filepath = os.path.join(output_dir, filename.replace('.png', '.pdf'))
     plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
-    
-    # Also save as PDF
-    pdf_path = filepath.replace('.png', '.pdf')
-    plt.savefig(pdf_path, dpi=DPI_SAVE, bbox_inches='tight')
-    
     print(f"Saved: {filepath}")
-    print(f"Saved: {pdf_path}")
     plt.close()
     
-    return {'whole': filepath, 'whole_pdf': pdf_path, 'subfigures': saved_subfigures}
+    return {'whole': filepath, 'subfigures': saved_subfigures}
 
 
 def _save_single_panel(X, Y, data, cmap, vmin, vmax, title, cbar_label, filepath):
@@ -558,19 +552,13 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     
     plt.tight_layout()
     
-    # Save figure
-    filepath = os.path.join(output_dir, filename)
+    # Save as PDF only
+    filepath = os.path.join(output_dir, filename.replace('.png', '.pdf'))
     plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
-    
-    # Also save as PDF
-    pdf_path = filepath.replace('.png', '.pdf')
-    plt.savefig(pdf_path, dpi=DPI_SAVE, bbox_inches='tight')
-    
     print(f"Saved: {filepath}")
-    print(f"Saved: {pdf_path}")
     plt.close()
     
-    return {'whole': filepath, 'whole_pdf': pdf_path, 'subfigures': saved_subfigures}
+    return {'whole': filepath, 'subfigures': saved_subfigures}
 
 
 def _save_diagnostic_subplot(ax, filepath):
