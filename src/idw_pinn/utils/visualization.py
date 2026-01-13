@@ -7,6 +7,7 @@ Provides publication-ready plots with:
 - Whole figures + separate subfigures for LaTeX integration
 - Support for numerical (with true D=0.2) and experimental data (target D range)
 - Percent error display instead of absolute error
+- Consistent axis limits across runs for comparison
 
 Updated: January 2026
 """
@@ -37,6 +38,14 @@ FONT_CONFIG = {
     'tick_label': 12,
     'colorbar_label': 13,
     'legend': 12,
+}
+
+# Hardcoded axis limits for cross-run consistency (all log scale)
+AXIS_LIMITS = {
+    'D_evolution': (1e-5, 1),
+    'D_error': (1e-10, 1),
+    'losses': (1e-12, 1e2),
+    'lambdas': (1e-3, 1e5),
 }
 
 DPI_SAVE = 300
@@ -103,6 +112,88 @@ def _ensure_dirs(output_dir: str):
     subfig_dir = os.path.join(output_dir, 'subfigures')
     os.makedirs(subfig_dir, exist_ok=True)
     return subfig_dir
+
+
+# =============================================================================
+# LATEX SNIPPET GENERATION
+# =============================================================================
+
+def _append_latex_snippet(output_dir: str, subfigure_paths: list, 
+                          figure_type: str, caption: str = '', label: str = ''):
+    """
+    Append LaTeX snippet for subfigures to latex_snippets.txt.
+    
+    Args:
+        output_dir: Directory containing the output
+        subfigure_paths: List of paths to subfigure PDFs
+        figure_type: Type of figure (e.g., 'solution_comparison', 'diagnostics')
+        caption: Figure caption text
+        label: LaTeX label for the figure
+    """
+    latex_file = os.path.join(output_dir, 'latex_snippets.txt')
+    
+    # Extract just filenames (relative to Figs/ folder in Overleaf)
+    filenames = [os.path.basename(p) for p in subfigure_paths]
+    
+    # Determine number of columns (4 for standard layout)
+    n_cols = min(4, len(filenames))
+    
+    # Generate timestamp and unique run ID for this entry
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
+    
+    # Build LaTeX snippet
+    tabular_cols = 'c@{}' * n_cols
+    snippet = f"""
+% =============================================================================
+% {figure_type.upper()} - Generated: {timestamp}
+% OVERLEAF DIRECTORY: Figs/{run_id}
+% Create this directory in Overleaf and upload all subfigures there.
+% =============================================================================
+\\begin{{figure}}[htbp]
+\\checkoddpage
+\\begin{{adjustwidth}}{{-1cm}}{{-1cm}}
+\\centering
+\\setlength{{\\tabcolsep}}{{0pt}}
+\\begin{{tabular}}{{@{{}}{tabular_cols}}}
+"""
+    
+    # Add images row by row
+    labels = ['(a)', '(b)', '(c)', '(d)', '(e)', '(f)', '(g)', '(h)', 
+              '(i)', '(j)', '(k)', '(l)']
+    
+    for row_start in range(0, len(filenames), n_cols):
+        row_files = filenames[row_start:row_start + n_cols]
+        row_labels = labels[row_start:row_start + n_cols]
+        
+        # Image row - use run_id directory
+        img_commands = [f'\\includegraphics[width={0.95/n_cols:.2f}\\textwidth]{{Figs/{run_id}/{f}}}' 
+                       for f in row_files]
+        snippet += '    ' + ' &\n    '.join(img_commands) + r' \\' + '\n'
+        
+        # Label row
+        label_commands = [f'\\small {lbl}' for lbl in row_labels]
+        snippet += '    ' + ' & '.join(label_commands) + r' \\[0.5em]' + '\n'
+    
+    snippet += f"""\\end{{tabular}}
+\\end{{adjustwidth}}
+\\caption{{{caption if caption else f'{figure_type} results'}}}
+\\label{{{label if label else f'fig:{figure_type}'}}}
+\\end{{figure}}
+
+% Upload these files to Figs/{run_id}/:
+"""
+    for p in subfigure_paths:
+        snippet += f"%   {os.path.basename(p)}\n"
+    
+    snippet += "\n"
+    
+    # Append to file
+    with open(latex_file, 'a') as f:
+        f.write(snippet)
+    
+    print(f"LaTeX snippet appended to: {latex_file}")
+    print(f">>> Create Overleaf directory: Figs/{run_id}")
 
 
 # =============================================================================
@@ -208,7 +299,7 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
         # Save subfigure
         if save_subfigures:
             subfig_path = os.path.join(subfig_dir, 
-                f'{true_label.lower()}_at_T{i}_D_{diff_coeff_learned:.6f}.pdf')
+                f'{true_label.lower()}_t{i}_D{diff_coeff_learned:.6f}.pdf')
             _save_single_panel(X, Y, usol[:, :, ti], 'jet', u_vmin, u_vmax,
                               f'{true_label}, t={t[ti]:.3f}s', 'u', subfig_path)
             saved_subfigures.append(subfig_path)
@@ -233,7 +324,7 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
         # Save subfigure
         if save_subfigures:
             subfig_path = os.path.join(subfig_dir,
-                f'pred_at_T{i}_D_{diff_coeff_learned:.6f}.pdf')
+                f'pred_t{i}_D{diff_coeff_learned:.6f}.pdf')
             _save_single_panel(X, Y, u_pred_reshaped[:, :, ti], 'jet', u_vmin, u_vmax,
                               f'Predicted, t={t[ti]:.3f}s', 'u', subfig_path)
             saved_subfigures.append(subfig_path)
@@ -258,7 +349,7 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
         # Save subfigure
         if save_subfigures:
             subfig_path = os.path.join(subfig_dir,
-                f'percent_error_at_T{i}_D_{diff_coeff_learned:.6f}.pdf')
+                f'error_t{i}_D{diff_coeff_learned:.6f}.pdf')
             _save_single_panel(X, Y, percent_error_all[:, :, ti], 'hot', 0, err_vmax,
                               f'% Error, t={t[ti]:.3f}s', '% Error', subfig_path)
             saved_subfigures.append(subfig_path)
@@ -277,6 +368,16 @@ def plot_2d_solution_comparison(u_pred, usol, x, y, t, diff_coeff_learned,
     plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
     print(f"Saved: {filepath}")
     plt.close()
+    
+    # Generate LaTeX snippet
+    if save_subfigures and saved_subfigures:
+        _append_latex_snippet(
+            output_dir=output_dir,
+            subfigure_paths=saved_subfigures,
+            figure_type='solution_comparison',
+            caption=f'2D diffusion solution comparison. Learned D = {diff_coeff_learned:.6f}.',
+            label='fig:solution_comparison'
+        )
     
     return {'whole': filepath, 'subfigures': saved_subfigures}
 
@@ -307,20 +408,17 @@ def _save_single_panel(X, Y, data, cmap, vmin, vmax, title, cbar_label, filepath
 def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
                                data_type=None, output_dir='outputs',
                                filename=None, save_subfigures=True):
-    # Use global DATA_TYPE if not specified
-    if data_type is None:
-        data_type = DATA_TYPE
     """
-    Plot comprehensive training diagnostics in 2x3 layout.
+    Plot comprehensive training diagnostics in 2x3 layout (all log scale).
     
     Creates diagnostic plots showing:
-    - D evolution (linear and log scale)
-    - D error evolution (log scale) - for numerical only
-    - Loss components (BC/IC, Data, PDE) over epochs
-    - Lambda weights (linear and log scale)
+    - D evolution (log scale) x2
+    - D error evolution (log scale)
+    - Loss components (BC/IC, Data, PDE) over epochs (log scale)
+    - Lambda weights (log scale) x2
     
-    NOTE: Labels use "BC/IC" instead of just "BC" since this loss term
-    includes both boundary conditions AND initial conditions.
+    All plots use consistent hardcoded axis limits from AXIS_LIMITS for
+    cross-run comparison.
     
     Args:
         history_adam: Dict with keys 'diff_coeff', 'loss_bc', 'loss_data', 'loss_f',
@@ -335,6 +433,10 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     Returns:
         dict: Paths to saved files
     """
+    # Use global DATA_TYPE if not specified
+    if data_type is None:
+        data_type = DATA_TYPE
+        
     set_publication_style()
     subfig_dir = _ensure_dirs(output_dir)
     
@@ -357,11 +459,6 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     
     total_iterations = len(diff_all)
     
-    # Create 2x3 figure
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    
-    saved_subfigures = []
-    
     # Determine D reference display
     if data_type == 'numerical':
         d_true = diff_coeff_true if diff_coeff_true is not None else DATA_CONFIG['numerical']['diff_coeff_true']
@@ -372,13 +469,18 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         d_label = f'Target: {d_range[0]:.4f}-{d_range[1]:.4f}'
         d_true = None
     
+    # Create 2x3 figure
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    
+    saved_subfigures = []
+    
     # -------------------------------------------------------------------------
-    # Plot 1: D evolution (linear)
+    # Plot 1: D evolution (log scale)
     # -------------------------------------------------------------------------
     ax = axes[0, 0]
-    ax.plot(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5, label='Adam')
+    ax.semilogy(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5, label='Adam')
     if history_lbfgs.get('diff_coeff'):
-        ax.plot(range(adam_epochs, total_iterations), history_lbfgs['diff_coeff'],
+        ax.semilogy(range(adam_epochs, total_iterations), history_lbfgs['diff_coeff'],
                 'b--', alpha=0.8, linewidth=1.5, label='L-BFGS')
     
     # Reference line(s)
@@ -388,19 +490,28 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         ax.axhspan(d_range[0], d_range[1], alpha=0.3, color='green', label=d_label)
     
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.set_ylim(AXIS_LIMITS['D_evolution'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_ylabel('D', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel('D (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('Diffusion Coefficient Evolution', fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'D_evolution_linear.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'D_evolution_linear.pdf'))
+        path = os.path.join(subfig_dir, 'D_evolution_1.pdf')
+        _save_diagnostic_subplot_direct(
+            x_data=[(range(adam_epochs), history_adam['diff_coeff'], 'b-', 'Adam'),
+                    (range(adam_epochs, total_iterations), history_lbfgs.get('diff_coeff', []), 'b--', 'L-BFGS')],
+            ylabel='D (log)', title='Diffusion Coefficient Evolution',
+            ylim=AXIS_LIMITS['D_evolution'], adam_epochs=adam_epochs,
+            d_true=d_true, d_range=d_range, d_label=d_label,
+            filepath=path, use_log=True
+        )
+        saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 2: D evolution (log scale)
+    # Plot 2: D evolution (log scale) - duplicate for layout consistency
     # -------------------------------------------------------------------------
     ax = axes[0, 1]
     ax.semilogy(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5)
@@ -414,6 +525,7 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         ax.axhspan(d_range[0], d_range[1], alpha=0.3, color='green', label=d_label)
     
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.set_ylim(AXIS_LIMITS['D_evolution'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('D (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('D Evolution (Log Scale)', fontsize=FONT_CONFIG['title'])
@@ -422,11 +534,19 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'D_evolution_log.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'D_evolution_log.pdf'))
+        path = os.path.join(subfig_dir, 'D_evolution_2.pdf')
+        _save_diagnostic_subplot_direct(
+            x_data=[(range(adam_epochs), history_adam['diff_coeff'], 'b-', 'Adam'),
+                    (range(adam_epochs, total_iterations), history_lbfgs.get('diff_coeff', []), 'b--', 'L-BFGS')],
+            ylabel='D (log)', title='D Evolution (Log Scale)',
+            ylim=AXIS_LIMITS['D_evolution'], adam_epochs=adam_epochs,
+            d_true=d_true, d_range=d_range, d_label=d_label,
+            filepath=path, use_log=True
+        )
+        saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 3: D error evolution (numerical) or D distance from range (experimental)
+    # Plot 3: D error evolution (numerical) or % error from midpoint (experimental)
     # -------------------------------------------------------------------------
     ax = axes[0, 2]
     
@@ -436,32 +556,46 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         if len(d_error) > adam_epochs:
             ax.semilogy(range(adam_epochs, total_iterations), d_error[adam_epochs:],
                         'b--', alpha=0.8, linewidth=1.5)
-        ax.set_ylabel('|D - D_true|', fontsize=FONT_CONFIG['axis_label'])
-        ax.set_title('D Error Evolution', fontsize=FONT_CONFIG['title'])
+        ylabel = '|D - D_true|'
+        title = 'D Error Evolution'
+        error_data = d_error
     else:
-        # For experimental: show distance from target range
+        # For experimental: percent error from target range midpoint
         d_arr = np.array(diff_all)
         d_low, d_high = d_range
-        d_distance = np.maximum(0, np.maximum(d_low - d_arr, d_arr - d_high))
-        ax.semilogy(range(adam_epochs), d_distance[:adam_epochs] + 1e-10, 'b-', alpha=0.8, linewidth=1.5)
-        if len(d_distance) > adam_epochs:
-            ax.semilogy(range(adam_epochs, total_iterations), d_distance[adam_epochs:] + 1e-10,
+        d_midpoint = (d_low + d_high) / 2.0
+        percent_error = np.abs(d_arr - d_midpoint) / d_midpoint * 100.0
+        ax.semilogy(range(adam_epochs), percent_error[:adam_epochs] + 1e-12, 'b-', alpha=0.8, linewidth=1.5)
+        if len(percent_error) > adam_epochs:
+            ax.semilogy(range(adam_epochs, total_iterations), percent_error[adam_epochs:] + 1e-12,
                         'b--', alpha=0.8, linewidth=1.5)
-        ax.set_ylabel('Distance from target range', fontsize=FONT_CONFIG['axis_label'])
-        ax.set_title('D Distance from Target Range', fontsize=FONT_CONFIG['title'])
+        ylabel = '% Error from midpoint'
+        title = 'D % Error from Target Midpoint'
+        error_data = percent_error + 1e-12
     
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.set_ylim(AXIS_LIMITS['D_error'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title(title, fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'D_error_evolution.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'D_error_evolution.pdf'))
+        path = os.path.join(subfig_dir, 'D_error.pdf')
+        _save_diagnostic_subplot_direct(
+            x_data=[(range(adam_epochs), error_data[:adam_epochs], 'b-', 'Adam'),
+                    (range(adam_epochs, total_iterations), error_data[adam_epochs:] if len(error_data) > adam_epochs else [], 'b--', 'L-BFGS')],
+            ylabel=ylabel, title=title,
+            ylim=AXIS_LIMITS['D_error'], adam_epochs=adam_epochs,
+            d_true=None, d_range=None, d_label=None,
+            filepath=path, use_log=True
+        )
+        saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 4: Loss components - NOTE: Using BC/IC label
+    # Plot 4: Loss components
     # -------------------------------------------------------------------------
     ax = axes[1, 0]
     ax.semilogy(range(adam_epochs), loss_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
@@ -475,10 +609,10 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         ax.semilogy(range(adam_epochs, total_iterations), loss_f_all[adam_epochs:],
                     'g--', alpha=0.8, linewidth=1.5)
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
-    # Updated labels: BC → BC/IC
     ax.plot([], [], 'b-', linewidth=2, label=r'$\mathcal{L}_{BC/IC}$')
     ax.plot([], [], 'orange', linewidth=2, label=r'$\mathcal{L}_{data}$')
     ax.plot([], [], 'g-', linewidth=2, label=r'$\mathcal{L}_{PDE}$')
+    ax.set_ylim(AXIS_LIMITS['losses'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('Loss', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('Loss Components', fontsize=FONT_CONFIG['title'])
@@ -487,41 +621,53 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'losses.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'losses.pdf'))
+        path = os.path.join(subfig_dir, 'losses.pdf')
+        _save_loss_subplot(
+            adam_epochs=adam_epochs, total_iterations=total_iterations,
+            loss_bc=loss_bc_all, loss_data=loss_data_all, loss_f=loss_f_all,
+            ylabel='Loss', title='Loss Components',
+            ylim=AXIS_LIMITS['losses'], filepath=path
+        )
+        saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 5: Lambda weights (linear) - NOTE: Using BC/IC label
+    # Plot 5: Lambda weights (log scale)
     # -------------------------------------------------------------------------
     ax = axes[1, 1]
-    ax.plot(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
-    ax.plot(range(adam_epochs), lam_data_all[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
-    ax.plot(range(adam_epochs), lam_f_all[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), lam_data_all[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), lam_f_all[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
     if history_lbfgs.get('lam_bc'):
-        ax.plot(range(adam_epochs, total_iterations), lam_bc_all[adam_epochs:],
+        ax.semilogy(range(adam_epochs, total_iterations), lam_bc_all[adam_epochs:],
                 'b--', alpha=0.8, linewidth=1.5)
-        ax.plot(range(adam_epochs, total_iterations), lam_data_all[adam_epochs:],
+        ax.semilogy(range(adam_epochs, total_iterations), lam_data_all[adam_epochs:],
                 'orange', linestyle='--', alpha=0.8, linewidth=1.5)
-        ax.plot(range(adam_epochs, total_iterations), lam_f_all[adam_epochs:],
+        ax.semilogy(range(adam_epochs, total_iterations), lam_f_all[adam_epochs:],
                 'g--', alpha=0.8, linewidth=1.5)
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
-    # Updated labels: BC → BC/IC
     ax.plot([], [], 'b-', linewidth=2, label=r'$\lambda_{BC/IC}$')
     ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
     ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
+    ax.set_ylim(AXIS_LIMITS['lambdas'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_ylabel('Weight', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel('Weight (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('IDW Weights', fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'lambdas_linear.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'lambdas_linear.pdf'))
+        path = os.path.join(subfig_dir, 'lambdas_1.pdf')
+        _save_lambda_subplot(
+            adam_epochs=adam_epochs, total_iterations=total_iterations,
+            lam_bc=lam_bc_all, lam_data=lam_data_all, lam_f=lam_f_all,
+            ylabel='Weight (log)', title='IDW Weights',
+            ylim=AXIS_LIMITS['lambdas'], filepath=path
+        )
+        saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 6: Lambda weights (log) - NOTE: Using BC/IC label
+    # Plot 6: Lambda weights (log scale) - duplicate for layout
     # -------------------------------------------------------------------------
     ax = axes[1, 2]
     ax.semilogy(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
@@ -535,10 +681,10 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         ax.semilogy(range(adam_epochs, total_iterations), lam_f_all[adam_epochs:],
                     'g--', alpha=0.8, linewidth=1.5)
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
-    # Updated labels: BC → BC/IC
     ax.plot([], [], 'b-', linewidth=2, label=r'$\lambda_{BC/IC}$')
     ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
     ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
+    ax.set_ylim(AXIS_LIMITS['lambdas'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('Weight (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('IDW Weights (Log Scale)', fontsize=FONT_CONFIG['title'])
@@ -547,8 +693,14 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        _save_diagnostic_subplot(ax, os.path.join(subfig_dir, 'lambdas_log.pdf'))
-        saved_subfigures.append(os.path.join(subfig_dir, 'lambdas_log.pdf'))
+        path = os.path.join(subfig_dir, 'lambdas_2.pdf')
+        _save_lambda_subplot(
+            adam_epochs=adam_epochs, total_iterations=total_iterations,
+            lam_bc=lam_bc_all, lam_data=lam_data_all, lam_f=lam_f_all,
+            ylabel='Weight (log)', title='IDW Weights (Log Scale)',
+            ylim=AXIS_LIMITS['lambdas'], filepath=path
+        )
+        saved_subfigures.append(path)
     
     plt.tight_layout()
     
@@ -558,51 +710,134 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     print(f"Saved: {filepath}")
     plt.close()
     
+    # Generate LaTeX snippet
+    if save_subfigures and saved_subfigures:
+        _append_latex_snippet(
+            output_dir=output_dir,
+            subfigure_paths=saved_subfigures,
+            figure_type='training_diagnostics',
+            caption='Training diagnostics showing D evolution, error, losses, and IDW weights.',
+            label='fig:training_diagnostics'
+        )
+    
     return {'whole': filepath, 'subfigures': saved_subfigures}
 
 
-def _save_diagnostic_subplot(ax, filepath):
+def _save_diagnostic_subplot_direct(x_data, ylabel, title, ylim, adam_epochs,
+                                     d_true, d_range, d_label, filepath, use_log=True):
     """
-    Save an individual diagnostic subplot as a standalone figure.
+    Save a diagnostic subplot with consistent axis limits.
     
-    Note: This creates a new figure since axes can't be directly saved.
+    Args:
+        x_data: List of tuples (x_vals, y_vals, linestyle, label)
+        ylabel: Y-axis label
+        title: Plot title
+        ylim: (ymin, ymax) tuple
+        adam_epochs: Iteration count for Adam phase (for vertical line)
+        d_true: True D value (for horizontal line) or None
+        d_range: (d_low, d_high) tuple for experimental data or None
+        d_label: Label for D reference
+        filepath: Output path
+        use_log: Whether to use log scale on y-axis
     """
-    # Get the data from the axis and recreate
-    fig_sub, ax_sub = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(6, 5))
     
-    # Copy all lines
-    for line in ax.get_lines():
-        ax_sub.plot(line.get_xdata(), line.get_ydata(),
-                   linestyle=line.get_linestyle(),
-                   color=line.get_color(),
-                   linewidth=line.get_linewidth(),
-                   alpha=line.get_alpha(),
-                   label=line.get_label())
+    for x_vals, y_vals, linestyle, label in x_data:
+        if len(y_vals) > 0:
+            if use_log:
+                ax.semilogy(x_vals, y_vals, linestyle, alpha=0.8, linewidth=1.5, label=label)
+            else:
+                ax.plot(x_vals, y_vals, linestyle, alpha=0.8, linewidth=1.5, label=label)
     
-    # Copy axis scale
-    ax_sub.set_xscale(ax.get_xscale())
-    ax_sub.set_yscale(ax.get_yscale())
+    # Add reference lines
+    if d_true is not None:
+        ax.axhline(y=d_true, color='r', linestyle='-', linewidth=2, label=d_label)
+    elif d_range is not None:
+        ax.axhspan(d_range[0], d_range[1], alpha=0.3, color='green', label=d_label)
     
-    # Copy labels and title
-    ax_sub.set_xlabel(ax.get_xlabel(), fontsize=FONT_CONFIG['axis_label'])
-    ax_sub.set_ylabel(ax.get_ylabel(), fontsize=FONT_CONFIG['axis_label'])
-    ax_sub.set_title(ax.get_title(), fontsize=FONT_CONFIG['title'])
-    ax_sub.tick_params(labelsize=FONT_CONFIG['tick_label'])
-    ax_sub.grid(True, alpha=0.3)
+    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
     
-    # Only add legend if there are labeled items
-    handles, labels = ax_sub.get_legend_handles_labels()
-    if any(label and not label.startswith('_') for label in labels):
-        ax_sub.legend(fontsize=FONT_CONFIG['legend'])
-    
-    # Copy any fill_between regions (for target range)
-    for collection in ax.collections:
-        # Skip if it's not a PolyCollection (fill_between creates these)
-        pass  # Complex to copy, skip for now
+    ax.set_ylim(ylim)
+    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title(title, fontsize=FONT_CONFIG['title'])
+    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=FONT_CONFIG['legend'])
     
     plt.tight_layout()
     plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
-    plt.close(fig_sub)
+    plt.close()
+
+
+def _save_loss_subplot(adam_epochs, total_iterations, loss_bc, loss_data, loss_f,
+                       ylabel, title, ylim, filepath):
+    """Save loss components subplot with consistent axis limits."""
+    fig, ax = plt.subplots(figsize=(6, 5))
+    
+    ax.semilogy(range(adam_epochs), loss_bc[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), loss_data[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), loss_f[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+    
+    if len(loss_bc) > adam_epochs:
+        ax.semilogy(range(adam_epochs, total_iterations), loss_bc[adam_epochs:],
+                    'b--', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs, total_iterations), loss_data[adam_epochs:],
+                    'orange', linestyle='--', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs, total_iterations), loss_f[adam_epochs:],
+                    'g--', alpha=0.8, linewidth=1.5)
+    
+    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.plot([], [], 'b-', linewidth=2, label=r'$\mathcal{L}_{BC/IC}$')
+    ax.plot([], [], 'orange', linewidth=2, label=r'$\mathcal{L}_{data}$')
+    ax.plot([], [], 'g-', linewidth=2, label=r'$\mathcal{L}_{PDE}$')
+    
+    ax.set_ylim(ylim)
+    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title(title, fontsize=FONT_CONFIG['title'])
+    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=FONT_CONFIG['legend'])
+    
+    plt.tight_layout()
+    plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
+    plt.close()
+
+
+def _save_lambda_subplot(adam_epochs, total_iterations, lam_bc, lam_data, lam_f,
+                         ylabel, title, ylim, filepath):
+    """Save lambda weights subplot with consistent axis limits."""
+    fig, ax = plt.subplots(figsize=(6, 5))
+    
+    ax.semilogy(range(adam_epochs), lam_bc[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), lam_data[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+    ax.semilogy(range(adam_epochs), lam_f[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+    
+    if len(lam_bc) > adam_epochs:
+        ax.semilogy(range(adam_epochs, total_iterations), lam_bc[adam_epochs:],
+                    'b--', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs, total_iterations), lam_data[adam_epochs:],
+                    'orange', linestyle='--', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs, total_iterations), lam_f[adam_epochs:],
+                    'g--', alpha=0.8, linewidth=1.5)
+    
+    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.plot([], [], 'b-', linewidth=2, label=r'$\lambda_{BC/IC}$')
+    ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
+    ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
+    
+    ax.set_ylim(ylim)
+    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title(title, fontsize=FONT_CONFIG['title'])
+    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=FONT_CONFIG['legend'])
+    
+    plt.tight_layout()
+    plt.savefig(filepath, dpi=DPI_SAVE, bbox_inches='tight')
+    plt.close()
 
 
 # =============================================================================
@@ -668,12 +903,15 @@ def plot_training_diagnostics_experimental(history_adam, history_lbfgs,
 
 
 # =============================================================================
-# LATEX HELPER FUNCTIONS
+# LATEX HELPER FUNCTIONS (Legacy - kept for backward compatibility)
 # =============================================================================
 
 def generate_latex_snippet(subfigure_paths, caption='', label='fig:results'):
     """
     Generate LaTeX code snippet for including subfigures in a tabular layout.
+    
+    NOTE: This is the legacy function. LaTeX snippets are now automatically
+    generated and appended to latex_snippets.txt by the main plotting functions.
     
     Args:
         subfigure_paths: List of paths to subfigure PDFs
