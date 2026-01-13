@@ -46,7 +46,9 @@ data:
 
 # Network architecture
 network:
-  layers: [3, 64, 64, 64, 1]  # [input(x,y,t), hidden..., output(u)] [3, 64, 64, 64, 64, 1]
+  layers: [3, 64, 64, 64, 1]  # [input(x,y,t), hidden..., output(u)] [3, 64, 64, 64, 64, 1] # Test
+
+
 
 
 
