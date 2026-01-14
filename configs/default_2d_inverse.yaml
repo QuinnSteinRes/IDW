@@ -19,11 +19,11 @@ idw:
 # Training parameters
 training:
   adam_lr: 1.0e-3         # Adam optimizer learning rate
-  adam_epochs: 10     # Number of Adam epochs 4000
+  adam_epochs: 4000     # Number of Adam epochs 4000
   print_every: 200        # Print/log frequency (in epochs)
   
   # L-BFGS parameters (scipy.optimize.minimize)
-  lbfgs_maxiter: 10     # Maximum L-BFGS iterations 4000
+  lbfgs_maxiter: 4000     # Maximum L-BFGS iterations 4000
   lbfgs_maxfun: 2000      # Maximum function evaluations
   lbfgs_maxcor: 200       # Maximum variable metric corrections
   lbfgs_ftol: 2.220446049250313e-09  # Function tolerance (np.finfo(float).eps)
@@ -41,12 +41,12 @@ data:
   #input_file: "src/idw_pinn/data/RTR4.csv"  # Path to RTR4 data 
 
   n_u: 200                     # BC/IC points 200
-  n_f: 200                    # Collocation points (PDE residual) 2000
-  n_obs: 250                   # Interior observation points (for inverse problem) 2500
+  n_f: 2000                    # Collocation points (PDE residual) 2000
+  n_obs: 2500                  # Interior observation points (for inverse problem) 2500
 
 # Network architecture
 network:
-  layers: [3, 64, 64, 64, 1]  # [input(x,y,t), hidden..., output(u)] [3, 64, 64, 64, 64, 1] # Test
+  layers: [3, 64, 64, 64, 64, 1]  # [input(x,y,t), hidden..., output(u)] [3, 64, 64, 64, 64, 1] # Test
 
 
 
