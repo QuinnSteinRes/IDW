@@ -43,7 +43,7 @@ FONT_CONFIG = {
 # Hardcoded axis limits for cross-run consistency (all log scale)
 AXIS_LIMITS = {
     'D_evolution': (1e-5, 1),
-    'D_error': (1e-10, 1),
+    'D_error': (1e-5, 1e5),
     'losses': (1e-12, 1e2),
     'lambdas': (1e-3, 1e5),
 }
