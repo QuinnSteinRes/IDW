@@ -144,7 +144,7 @@ def _append_latex_snippet(output_dir: str, subfigure_paths: list,
     Args:
         output_dir: Directory containing the output
         subfigure_paths: List of paths to subfigure PDFs
-        figure_type: Type of figure (e.g., 'solution_comparison', 'diagnostics')
+        figure_type: Type of figure (e.g., 'solution_comparison', 'training_diagnostics')
         caption: Figure caption text
         label: LaTeX label for the figure
         run_id: Shared run ID for this session
@@ -157,8 +157,13 @@ def _append_latex_snippet(output_dir: str, subfigure_paths: list,
     # Extract just filenames (relative to IDW/Figs/<run_id>/ folder in Overleaf)
     filenames = [os.path.basename(p) for p in subfigure_paths]
     
-    # Determine number of columns (4 for standard layout)
-    n_cols = min(4, len(filenames))
+    # Determine number of columns based on figure type
+    # - solution_comparison: 4 columns (12 subfigures in 3 rows of 4)
+    # - training_diagnostics: 3 columns (6 subfigures in 2 rows of 3)
+    if figure_type == 'training_diagnostics':
+        n_cols = min(3, len(filenames))
+    else:
+        n_cols = min(4, len(filenames))
     
     # Generate timestamp for this entry
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
