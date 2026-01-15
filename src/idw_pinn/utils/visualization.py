@@ -8,6 +8,7 @@ Provides publication-ready plots with:
 - Support for numerical (with true D=0.2) and experimental data (target D range)
 - Percent error display instead of absolute error
 - Consistent axis limits across runs for comparison
+- Both LOG and LINEAR scale versions of D evolution and lambda plots
 
 Updated: January 2026
 """
@@ -430,16 +431,17 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
                                data_type=None, output_dir='outputs',
                                filename=None, save_subfigures=True):
     """
-    Plot comprehensive training diagnostics in 2x3 layout (all log scale).
+    Plot comprehensive training diagnostics in 2x3 layout.
+    
+    Layout:
+    - Row 0: D evolution (log), D evolution (LINEAR), D error (log)
+    - Row 1: Loss components (log), Lambda weights (log), Lambda weights (LINEAR)
     
     Creates diagnostic plots showing:
-    - D evolution (log scale) x2
+    - D evolution in both log and linear scale
     - D error evolution (log scale)
     - Loss components (BC/IC, Data, PDE) over epochs (log scale)
-    - Lambda weights (log scale) x2
-    
-    All plots use consistent hardcoded axis limits from AXIS_LIMITS for
-    cross-run comparison.
+    - Lambda weights in both log and linear scale
     
     Args:
         history_adam: Dict with keys 'diff_coeff', 'loss_bc', 'loss_data', 'loss_f',
@@ -496,7 +498,7 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     saved_subfigures = []
     
     # -------------------------------------------------------------------------
-    # Plot 1: D evolution (log scale)
+    # Plot 1: D evolution (LOG scale)
     # -------------------------------------------------------------------------
     ax = axes[0, 0]
     ax.semilogy(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5, label='Adam')
@@ -514,48 +516,13 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.set_ylim(AXIS_LIMITS['D_evolution'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('D (log)', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_title('Diffusion Coefficient Evolution', fontsize=FONT_CONFIG['title'])
-    ax.legend(fontsize=FONT_CONFIG['legend'])
-    ax.grid(True, alpha=0.3)
-    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
-    
-    if save_subfigures:
-        path = os.path.join(subfig_dir, 'D_evolution_1.pdf')
-        _save_diagnostic_subplot_direct(
-            x_data=[(range(adam_epochs), history_adam['diff_coeff'], 'b-', 'Adam'),
-                    (range(adam_epochs, total_iterations), history_lbfgs.get('diff_coeff', []), 'b--', 'L-BFGS')],
-            ylabel='D (log)', title='Diffusion Coefficient Evolution',
-            ylim=AXIS_LIMITS['D_evolution'], adam_epochs=adam_epochs,
-            d_true=d_true, d_range=d_range, d_label=d_label,
-            filepath=path, use_log=True
-        )
-        saved_subfigures.append(path)
-    
-    # -------------------------------------------------------------------------
-    # Plot 2: D evolution (log scale) - duplicate for layout consistency
-    # -------------------------------------------------------------------------
-    ax = axes[0, 1]
-    ax.semilogy(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5)
-    if history_lbfgs.get('diff_coeff'):
-        ax.semilogy(range(adam_epochs, total_iterations), history_lbfgs['diff_coeff'],
-                    'b--', alpha=0.8, linewidth=1.5)
-    
-    if d_true is not None:
-        ax.axhline(y=d_true, color='r', linestyle='-', linewidth=2, label=d_label)
-    elif d_range is not None:
-        ax.axhspan(d_range[0], d_range[1], alpha=0.3, color='green', label=d_label)
-    
-    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
-    ax.set_ylim(AXIS_LIMITS['D_evolution'])
-    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_ylabel('D (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('D Evolution (Log Scale)', fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        path = os.path.join(subfig_dir, 'D_evolution_2.pdf')
+        path = os.path.join(subfig_dir, 'D_evolution_log.pdf')
         _save_diagnostic_subplot_direct(
             x_data=[(range(adam_epochs), history_adam['diff_coeff'], 'b-', 'Adam'),
                     (range(adam_epochs, total_iterations), history_lbfgs.get('diff_coeff', []), 'b--', 'L-BFGS')],
@@ -563,6 +530,41 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
             ylim=AXIS_LIMITS['D_evolution'], adam_epochs=adam_epochs,
             d_true=d_true, d_range=d_range, d_label=d_label,
             filepath=path, use_log=True
+        )
+        saved_subfigures.append(path)
+    
+    # -------------------------------------------------------------------------
+    # Plot 2: D evolution (LINEAR scale) - replaces duplicate log plot
+    # -------------------------------------------------------------------------
+    ax = axes[0, 1]
+    ax.plot(range(adam_epochs), history_adam['diff_coeff'], 'b-', alpha=0.8, linewidth=1.5, label='Adam')
+    if history_lbfgs.get('diff_coeff'):
+        ax.plot(range(adam_epochs, total_iterations), history_lbfgs['diff_coeff'],
+                'b--', alpha=0.8, linewidth=1.5, label='L-BFGS')
+    
+    if d_true is not None:
+        ax.axhline(y=d_true, color='r', linestyle='-', linewidth=2, label=d_label)
+    elif d_range is not None:
+        ax.axhspan(d_range[0], d_range[1], alpha=0.3, color='green', label=d_label)
+    
+    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    # Auto-scale y-axis for linear plot
+    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel('D', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title('D Evolution (Linear Scale)', fontsize=FONT_CONFIG['title'])
+    ax.legend(fontsize=FONT_CONFIG['legend'])
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
+    
+    if save_subfigures:
+        path = os.path.join(subfig_dir, 'D_evolution_linear.pdf')
+        _save_diagnostic_subplot_direct(
+            x_data=[(range(adam_epochs), history_adam['diff_coeff'], 'b-', 'Adam'),
+                    (range(adam_epochs, total_iterations), history_lbfgs.get('diff_coeff', []), 'b--', 'L-BFGS')],
+            ylabel='D', title='D Evolution (Linear Scale)',
+            ylim=None, adam_epochs=adam_epochs,
+            d_true=d_true, d_range=d_range, d_label=d_label,
+            filepath=path, use_log=False
         )
         saved_subfigures.append(path)
     
@@ -616,7 +618,7 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 4: Loss components
+    # Plot 4: Loss components (LOG scale)
     # -------------------------------------------------------------------------
     ax = axes[1, 0]
     ax.semilogy(range(adam_epochs), loss_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
@@ -636,7 +638,7 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.set_ylim(AXIS_LIMITS['losses'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('Loss', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_title('Loss Components', fontsize=FONT_CONFIG['title'])
+    ax.set_title('Loss Components (Log Scale)', fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
@@ -646,13 +648,13 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
         _save_loss_subplot(
             adam_epochs=adam_epochs, total_iterations=total_iterations,
             loss_bc=loss_bc_all, loss_data=loss_data_all, loss_f=loss_f_all,
-            ylabel='Loss', title='Loss Components',
+            ylabel='Loss', title='Loss Components (Log Scale)',
             ylim=AXIS_LIMITS['losses'], filepath=path
         )
         saved_subfigures.append(path)
     
     # -------------------------------------------------------------------------
-    # Plot 5: Lambda weights (log scale)
+    # Plot 5: Lambda weights (LOG scale)
     # -------------------------------------------------------------------------
     ax = axes[1, 1]
     ax.semilogy(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
@@ -672,54 +674,54 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
     ax.set_ylim(AXIS_LIMITS['lambdas'])
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel('Weight (log)', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_title('IDW Weights', fontsize=FONT_CONFIG['title'])
-    ax.legend(fontsize=FONT_CONFIG['legend'])
-    ax.grid(True, alpha=0.3)
-    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
-    
-    if save_subfigures:
-        path = os.path.join(subfig_dir, 'lambdas_1.pdf')
-        _save_lambda_subplot(
-            adam_epochs=adam_epochs, total_iterations=total_iterations,
-            lam_bc=lam_bc_all, lam_data=lam_data_all, lam_f=lam_f_all,
-            ylabel='Weight (log)', title='IDW Weights',
-            ylim=AXIS_LIMITS['lambdas'], filepath=path
-        )
-        saved_subfigures.append(path)
-    
-    # -------------------------------------------------------------------------
-    # Plot 6: Lambda weights (log scale) - duplicate for layout
-    # -------------------------------------------------------------------------
-    ax = axes[1, 2]
-    ax.semilogy(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
-    ax.semilogy(range(adam_epochs), lam_data_all[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
-    ax.semilogy(range(adam_epochs), lam_f_all[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
-    if history_lbfgs.get('lam_bc'):
-        ax.semilogy(range(adam_epochs, total_iterations), lam_bc_all[adam_epochs:],
-                    'b--', alpha=0.8, linewidth=1.5)
-        ax.semilogy(range(adam_epochs, total_iterations), lam_data_all[adam_epochs:],
-                    'orange', linestyle='--', alpha=0.8, linewidth=1.5)
-        ax.semilogy(range(adam_epochs, total_iterations), lam_f_all[adam_epochs:],
-                    'g--', alpha=0.8, linewidth=1.5)
-    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
-    ax.plot([], [], 'b-', linewidth=2, label=r'$\lambda_{BC/IC}$')
-    ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
-    ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
-    ax.set_ylim(AXIS_LIMITS['lambdas'])
-    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
-    ax.set_ylabel('Weight (log)', fontsize=FONT_CONFIG['axis_label'])
     ax.set_title('IDW Weights (Log Scale)', fontsize=FONT_CONFIG['title'])
     ax.legend(fontsize=FONT_CONFIG['legend'])
     ax.grid(True, alpha=0.3)
     ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
     
     if save_subfigures:
-        path = os.path.join(subfig_dir, 'lambdas_2.pdf')
+        path = os.path.join(subfig_dir, 'lambdas_log.pdf')
         _save_lambda_subplot(
             adam_epochs=adam_epochs, total_iterations=total_iterations,
             lam_bc=lam_bc_all, lam_data=lam_data_all, lam_f=lam_f_all,
             ylabel='Weight (log)', title='IDW Weights (Log Scale)',
-            ylim=AXIS_LIMITS['lambdas'], filepath=path
+            ylim=AXIS_LIMITS['lambdas'], filepath=path, use_log=True
+        )
+        saved_subfigures.append(path)
+    
+    # -------------------------------------------------------------------------
+    # Plot 6: Lambda weights (LINEAR scale) - replaces duplicate log plot
+    # -------------------------------------------------------------------------
+    ax = axes[1, 2]
+    ax.plot(range(adam_epochs), lam_bc_all[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+    ax.plot(range(adam_epochs), lam_data_all[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+    ax.plot(range(adam_epochs), lam_f_all[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+    if history_lbfgs.get('lam_bc'):
+        ax.plot(range(adam_epochs, total_iterations), lam_bc_all[adam_epochs:],
+                'b--', alpha=0.8, linewidth=1.5)
+        ax.plot(range(adam_epochs, total_iterations), lam_data_all[adam_epochs:],
+                'orange', linestyle='--', alpha=0.8, linewidth=1.5)
+        ax.plot(range(adam_epochs, total_iterations), lam_f_all[adam_epochs:],
+                'g--', alpha=0.8, linewidth=1.5)
+    ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
+    ax.plot([], [], 'b-', linewidth=2, label=r'$\lambda_{BC/IC}$')
+    ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
+    ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
+    # Auto-scale y-axis for linear plot
+    ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_ylabel('Weight', fontsize=FONT_CONFIG['axis_label'])
+    ax.set_title('IDW Weights (Linear Scale)', fontsize=FONT_CONFIG['title'])
+    ax.legend(fontsize=FONT_CONFIG['legend'])
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=FONT_CONFIG['tick_label'])
+    
+    if save_subfigures:
+        path = os.path.join(subfig_dir, 'lambdas_linear.pdf')
+        _save_lambda_subplot(
+            adam_epochs=adam_epochs, total_iterations=total_iterations,
+            lam_bc=lam_bc_all, lam_data=lam_data_all, lam_f=lam_f_all,
+            ylabel='Weight', title='IDW Weights (Linear Scale)',
+            ylim=None, filepath=path, use_log=False
         )
         saved_subfigures.append(path)
     
@@ -737,7 +739,7 @@ def plot_training_diagnostics(history_adam, history_lbfgs, diff_coeff_true=None,
             output_dir=output_dir,
             subfigure_paths=saved_subfigures,
             figure_type='training_diagnostics',
-            caption='Training diagnostics showing D evolution, error, losses, and IDW weights.',
+            caption='Training diagnostics showing D evolution (log and linear), error, losses, and IDW weights (log and linear).',
             label='fig:training_diagnostics',
             run_id=run_id
         )
@@ -754,7 +756,7 @@ def _save_diagnostic_subplot_direct(x_data, ylabel, title, ylim, adam_epochs,
         x_data: List of tuples (x_vals, y_vals, linestyle, label)
         ylabel: Y-axis label
         title: Plot title
-        ylim: (ymin, ymax) tuple
+        ylim: (ymin, ymax) tuple or None for auto-scale
         adam_epochs: Iteration count for Adam phase (for vertical line)
         d_true: True D value (for horizontal line) or None
         d_range: (d_low, d_high) tuple for experimental data or None
@@ -779,7 +781,8 @@ def _save_diagnostic_subplot_direct(x_data, ylabel, title, ylim, adam_epochs,
     
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
     
-    ax.set_ylim(ylim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
     ax.set_title(title, fontsize=FONT_CONFIG['title'])
@@ -828,20 +831,33 @@ def _save_loss_subplot(adam_epochs, total_iterations, loss_bc, loss_data, loss_f
 
 
 def _save_lambda_subplot(adam_epochs, total_iterations, lam_bc, lam_data, lam_f,
-                         ylabel, title, ylim, filepath):
+                         ylabel, title, ylim, filepath, use_log=True):
     """Save lambda weights subplot with consistent axis limits."""
     fig, ax = plt.subplots(figsize=(6, 5))
     
-    ax.semilogy(range(adam_epochs), lam_bc[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
-    ax.semilogy(range(adam_epochs), lam_data[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
-    ax.semilogy(range(adam_epochs), lam_f[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
-    
-    if len(lam_bc) > adam_epochs:
-        ax.semilogy(range(adam_epochs, total_iterations), lam_bc[adam_epochs:],
+    if use_log:
+        ax.semilogy(range(adam_epochs), lam_bc[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs), lam_data[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+        ax.semilogy(range(adam_epochs), lam_f[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+        
+        if len(lam_bc) > adam_epochs:
+            ax.semilogy(range(adam_epochs, total_iterations), lam_bc[adam_epochs:],
+                        'b--', alpha=0.8, linewidth=1.5)
+            ax.semilogy(range(adam_epochs, total_iterations), lam_data[adam_epochs:],
+                        'orange', linestyle='--', alpha=0.8, linewidth=1.5)
+            ax.semilogy(range(adam_epochs, total_iterations), lam_f[adam_epochs:],
+                        'g--', alpha=0.8, linewidth=1.5)
+    else:
+        ax.plot(range(adam_epochs), lam_bc[:adam_epochs], 'b-', alpha=0.8, linewidth=1.5)
+        ax.plot(range(adam_epochs), lam_data[:adam_epochs], 'orange', alpha=0.8, linewidth=1.5)
+        ax.plot(range(adam_epochs), lam_f[:adam_epochs], 'g-', alpha=0.8, linewidth=1.5)
+        
+        if len(lam_bc) > adam_epochs:
+            ax.plot(range(adam_epochs, total_iterations), lam_bc[adam_epochs:],
                     'b--', alpha=0.8, linewidth=1.5)
-        ax.semilogy(range(adam_epochs, total_iterations), lam_data[adam_epochs:],
+            ax.plot(range(adam_epochs, total_iterations), lam_data[adam_epochs:],
                     'orange', linestyle='--', alpha=0.8, linewidth=1.5)
-        ax.semilogy(range(adam_epochs, total_iterations), lam_f[adam_epochs:],
+            ax.plot(range(adam_epochs, total_iterations), lam_f[adam_epochs:],
                     'g--', alpha=0.8, linewidth=1.5)
     
     ax.axvline(x=adam_epochs, color='k', linestyle=':', alpha=0.5, linewidth=1.5, label='Adam→L-BFGS')
@@ -849,7 +865,8 @@ def _save_lambda_subplot(adam_epochs, total_iterations, lam_bc, lam_data, lam_f,
     ax.plot([], [], 'orange', linewidth=2, label=r'$\lambda_{data}$')
     ax.plot([], [], 'g-', linewidth=2, label=r'$\lambda_{PDE}$')
     
-    ax.set_ylim(ylim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
     ax.set_xlabel('Iteration', fontsize=FONT_CONFIG['axis_label'])
     ax.set_ylabel(ylabel, fontsize=FONT_CONFIG['axis_label'])
     ax.set_title(title, fontsize=FONT_CONFIG['title'])
